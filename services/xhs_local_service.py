@@ -831,6 +831,10 @@ class XhsLocalService:
         response = await self._signed_post(page, self._SEARCH_API, payload)
         items = response.get("items") or []
         has_more = bool(response.get("has_more", False))
+        try:
+            self._debug("search.items", count=len(items) if isinstance(items, list) else 0)
+        except Exception:
+            pass
 
         videos: list[Video] = []
         if isinstance(items, list):
@@ -839,7 +843,13 @@ class XhsLocalService:
                     continue
                 if item.get("model_type") in {"rec_query", "hot_query"}:
                     continue
-                note = item.get("note_card") or item.get("note") or item
+                note = (
+                    item.get("note_card")
+                    or item.get("note")
+                    or item.get("noteCard")
+                    or item.get("data")
+                    or item
+                )
                 note_id = str(note.get("note_id") or note.get("id") or item.get("id") or "").strip()
                 xsec_token = str(item.get("xsec_token") or note.get("xsec_token") or "")
                 xsec_source = str(item.get("xsec_source") or note.get("xsec_source") or "pc_search")
@@ -848,12 +858,35 @@ class XhsLocalService:
                     note["note_id"] = note_id
                 if not note or not note_id:
                     continue
-                if not note.get("video") and not note.get("image_list"):
+                if self._debug_enabled:
+                    try:
+                        self._debug("search.note_keys", keys=list(note.keys())[:12])
+                    except Exception:
+                        pass
+                if not note.get("video") and not note.get("image_list") and not note.get("cover"):
                     try:
                         note = await self._request_note_detail(page, note_id, xsec_source, xsec_token)
                     except Exception:
                         pass
-                videos.append(self._video_from_note(note, self._build_note_url(note_id, xsec_token, xsec_source), xsec_token, xsec_source))
+                video_obj = self._video_from_note(
+                    note,
+                    self._build_note_url(note_id, xsec_token, xsec_source),
+                    xsec_token,
+                    xsec_source,
+                )
+                if (video_obj.thumbnail_url is None or (video_obj.author is None and video_obj.uploader is None)) and note_id:
+                    try:
+                        detailed = await self._request_note_detail(page, note_id, xsec_source, xsec_token)
+                    except Exception:
+                        detailed = None
+                    if isinstance(detailed, dict) and detailed:
+                        video_obj = self._video_from_note(
+                            detailed,
+                            self._build_note_url(note_id, xsec_token, xsec_source),
+                            xsec_token,
+                            xsec_source,
+                        )
+                videos.append(video_obj)
 
         next_offset = page_index + 1 if has_more else page_index
         return videos, has_more, next_offset, search_id
@@ -2061,6 +2094,10 @@ class XhsLocalService:
     def _extract_image_urls(note: dict[str, Any]) -> list[str]:
         images: list[str] = []
         for img in note.get("image_list") or note.get("images") or []:
+            if isinstance(img, str):
+                if img.strip():
+                    images.append(img.strip())
+                continue
             if not isinstance(img, dict):
                 continue
             for key in ("url_default", "url", "url_pre"):
@@ -2068,21 +2105,63 @@ class XhsLocalService:
                 if isinstance(value, str) and value.strip():
                     images.append(value.strip())
                     break
-            if not images:
-                for value in img.get("url_list") or []:
+            if images:
+                continue
+            url_list = img.get("url_list") or []
+            if isinstance(url_list, list):
+                for value in url_list:
                     if isinstance(value, str) and value.strip():
                         images.append(value.strip())
                         break
+                    if isinstance(value, dict):
+                        candidate = value.get("url") or value.get("url_default") or value.get("url_pre")
+                        if isinstance(candidate, str) and candidate.strip():
+                            images.append(candidate.strip())
+                            break
+        if not images:
+            cover = note.get("cover") or {}
+            if isinstance(cover, str):
+                if cover.strip():
+                    images.append(cover.strip())
+            elif isinstance(cover, dict):
+                for key in ("url_default", "url", "url_pre"):
+                    value = cover.get(key)
+                    if isinstance(value, str) and value.strip():
+                        images.append(value.strip())
+                        break
+                if not images:
+                    url_list = cover.get("url_list") or []
+                    if isinstance(url_list, list):
+                        for value in url_list:
+                            if isinstance(value, str) and value.strip():
+                                images.append(value.strip())
+                                break
         return images
 
     @staticmethod
     def _extract_thumbnail(note: dict[str, Any], image_urls: list[str]) -> str | None:
         cover = note.get("cover") or {}
+        if isinstance(cover, str):
+            if cover.strip():
+                return cover.strip()
         if isinstance(cover, dict):
             for key in ("url_default", "url", "url_pre"):
                 value = cover.get(key)
                 if isinstance(value, str) and value.strip():
                     return value.strip()
+            url_list = cover.get("url_list") or []
+            if isinstance(url_list, list):
+                for value in url_list:
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+                    if isinstance(value, dict):
+                        candidate = value.get("url") or value.get("url_default") or value.get("url_pre")
+                        if isinstance(candidate, str) and candidate.strip():
+                            return candidate.strip()
+        if isinstance(cover, list):
+            for item in cover:
+                if isinstance(item, str) and item.strip():
+                    return item.strip()
         if image_urls:
             return image_urls[0]
         return None

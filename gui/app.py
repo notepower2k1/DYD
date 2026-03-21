@@ -1854,30 +1854,30 @@ class TikTokDownloaderApp:
     def _normalize_search_label(self, value: str, kind: str) -> str:
         mappings = {
             "mode": {
-                "??": "Standard",
-                "??": "Jingxuan",
+                "默认": "Standard",
+                "精选": "Jingxuan",
             },
             "sort": {
-                "????": "Comprehensive",
-                "????": "Newest",
-                "????": "Most Liked",
+                "综合": "Comprehensive",
+                "最新": "Newest",
+                "最多赞": "Most Liked",
             },
             "time": {
-                "??": "All",
-                "???": "Past 24 hours",
-                "???": "Past week",
-                "???": "Past 6 months",
+                "全部": "All",
+                "一天内": "Past 24 hours",
+                "一周内": "Past week",
+                "半年内": "Past 6 months",
             },
             "duration": {
-                "??": "All",
-                "< 1??": "< 1 min",
-                "1-5??": "1-5 min",
+                "不限": "All",
+                "< 1分钟": "< 1 min",
+                "1-5分钟": "1-5 min",
             },
             "scope": {
-                "??": "All",
-                "????": "Following",
-                "????": "Recently watched",
-                "????": "Not watched yet",
+                "全部": "All",
+                "关注": "Following",
+                "最近看过": "Recently watched",
+                "未看过": "Not watched yet",
             },
         }
         return mappings.get(kind, {}).get(value, value)
@@ -2276,25 +2276,25 @@ class TikTokDownloaderApp:
         pause_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=48, height=34)
         pause_slot.grid(row=0, column=1, padx=(0, 8))
         pause_slot.grid_propagate(False)
-        pause_btn = ttk.Button(pause_slot, text="?", width=4, style="Secondary.TButton", command=lambda: self._pause_video_playback(popup, watch_status_var))
+        pause_btn = ttk.Button(pause_slot, text="⏸", width=4, style="Secondary.TButton", command=lambda: self._pause_video_playback(popup, watch_status_var))
         pause_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         resume_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=48, height=34)
         resume_slot.grid(row=0, column=2, padx=(0, 8))
         resume_slot.grid_propagate(False)
-        resume_btn = ttk.Button(resume_slot, text="?", width=4, style="Secondary.TButton", command=lambda: self._resume_video_playback(popup, watch_status_var))
+        resume_btn = ttk.Button(resume_slot, text="▶", width=4, style="Secondary.TButton", command=lambda: self._resume_video_playback(popup, watch_status_var))
         resume_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         replay_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=48, height=34)
         replay_slot.grid(row=0, column=3, padx=(0, 8))
         replay_slot.grid_propagate(False)
-        replay_btn = ttk.Button(replay_slot, text="??", width=4, style="Secondary.TButton", command=lambda: self._replay_video_playback(popup, video, watch_status_var))
+        replay_btn = ttk.Button(replay_slot, text="↻", width=4, style="Secondary.TButton", command=lambda: self._replay_video_playback(popup, video, watch_status_var))
         replay_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         open_link_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=112, height=34)
         open_link_slot.grid(row=0, column=4)
         open_link_slot.grid_propagate(False)
-        open_link_btn = ttk.Button(open_link_slot, text="??", style="Secondary.TButton", command=lambda: self._open_video_link(video))
+        open_link_btn = ttk.Button(open_link_slot, text="🔗", style="Secondary.TButton", command=lambda: self._open_video_link(video))
         open_link_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         popup._watch_btn = watch_btn  # type: ignore[attr-defined]
