@@ -39,3 +39,6 @@ cookie.txt
 cookie.repaired.txt
 *.repaired.txt
 
+
+# Log
+douyin_debug.log

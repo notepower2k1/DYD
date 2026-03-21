@@ -332,3 +332,76 @@
 2026-03-21T11:32:12 [browser.launch] channel=chrome
 2026-03-21T11:34:14 [browser.launch] channel=chrome
 2026-03-21T11:36:13 [browser.launch] channel=chrome
+2026-03-21T11:55:14 [browser.launch] channel=chrome
+2026-03-21T11:55:17 [fetch.resolve] input_url=https://v.douyin.com/fHv0qs_JyWg/ page_url=https://www.douyin.com/video/7603723007215445386 detail_id=7603723007215445386
+2026-03-21T11:55:18 [api.detail] uri=https://www.douyin.com/aweme/v1/web/aweme/detail/ status=200 response_preview=<empty>
+2026-03-21T11:55:36 [browser.launch] channel=chrome
+2026-03-21T11:55:42 [fetch.resolve] input_url=https://v.douyin.com/fHv0qs_JyWg/ page_url=https://www.douyin.com/video/7603723007215445386 detail_id=7603723007215445386
+2026-03-21T11:55:43 [api.detail] uri=https://www.douyin.com/aweme/v1/web/aweme/detail/ status=200 response_preview=<empty>
+2026-03-21T11:56:21 [browser.launch] channel=chrome
+2026-03-21T11:56:26 [api.user_profile] uri=/aweme/v1/web/user/profile/other/ status=200 response_preview=<empty>
+2026-03-21T11:57:48 [browser.launch] channel=chrome
+2026-03-21T11:57:50 [api.user_profile] uri=/aweme/v1/web/user/profile/other/ status=200 response_preview={"extra":{"fatal_item_ids":[],"logid":"202603211257509DB6C20317D65E443D61","now":1774069070000},"log_pb":{"impr_id":"202603211257509DB6C20317D65E443D61"},"statu
+2026-03-21T11:57:52 [api.user_posts] uri=/aweme/v1/web/aweme/post/ status=200 response_preview={"status_code":0,"min_cursor":0,"max_cursor":1766547044000,"has_more":1,"aweme_list":[{"aweme_id":"7440042185581399296","desc":"看好了 我就泼一次水#jk制服 #氛围感转场","create_
+2026-03-21T11:57:52 [profile.fetch] profile_input=https://www.douyin.com/user/MS4wLjABAAAAr0vow3ob-tPcoSMpaFCl-YP2Ky811_uTdmd0p3MnnHksTVi5k33WcDFXL_XP-m1K?from_tab_name=main&vid=7588831639631875328 sec_user_id=MS4wLjABAAAAr0vow3ob-tPcoSMpaFCl-YP2Ky811_uTdmd0p3MnnHksTVi5k33WcDFXL_XP-m1K start=1 count=20 returned=20 has_more=True
+2026-03-21T11:58:08 [fetch.resolve] input_url=https://v.douyin.com/fHv0qs_JyWg/ page_url=https://www.douyin.com/video/7603723007215445386 detail_id=7603723007215445386
+2026-03-21T11:58:09 [api.detail] uri=https://www.douyin.com/aweme/v1/web/aweme/detail/ status=403 response_preview=<empty>
+2026-03-21T11:58:43 [browser.launch] channel=chrome
+2026-03-21T11:58:48 [fetch.resolve] input_url=https://v.douyin.com/fHv0qs_JyWg/ page_url=https://www.douyin.com/video/7603723007215445386 detail_id=7603723007215445386
+2026-03-21T11:58:49 [api.detail] uri=https://www.douyin.com/aweme/v1/web/aweme/detail/ status=403 response_preview=<empty>
+2026-03-21T12:03:57 [browser.launch] channel=chrome
+2026-03-21T12:04:03 [fetch.resolve] input_url=https://v.douyin.com/fHv0qs_JyWg/ page_url=https://www.douyin.com/video/7603723007215445386 detail_id=7603723007215445386
+2026-03-21T12:04:04 [api.detail] uri=https://www.douyin.com/aweme/v1/web/aweme/detail/ status=403 response_preview=<empty>
+2026-03-21T12:04:10 [api.user_profile] uri=/aweme/v1/web/user/profile/other/ status=200 response_preview={"extra":{"fatal_item_ids":[],"logid":"20260321130410D8AA92C3426D497AC917","now":1774069450000},"log_pb":{"impr_id":"20260321130410D8AA92C3426D497AC917"},"statu
+2026-03-21T12:04:12 [api.user_posts] uri=/aweme/v1/web/aweme/post/ status=200 response_preview={"status_code":0,"min_cursor":0,"max_cursor":1766547044000,"has_more":1,"aweme_list":[{"aweme_id":"7440042185581399296","desc":"看好了 我就泼一次水#jk制服 #氛围感转场","create_
+2026-03-21T12:04:12 [profile.fetch] profile_input=https://www.douyin.com/user/MS4wLjABAAAAr0vow3ob-tPcoSMpaFCl-YP2Ky811_uTdmd0p3MnnHksTVi5k33WcDFXL_XP-m1K?from_tab_name=main&vid=7588831639631875328 sec_user_id=MS4wLjABAAAAr0vow3ob-tPcoSMpaFCl-YP2Ky811_uTdmd0p3MnnHksTVi5k33WcDFXL_XP-m1K start=1 count=20 returned=20 has_more=True
+2026-03-21T12:04:44 [browser.launch] channel=chrome
+2026-03-21T12:04:47 [fetch.resolve] input_url=https://v.douyin.com/w63c-v6DnRs/ page_url=https://www.douyin.com/video/7552835814783208742 detail_id=7552835814783208742
+2026-03-21T12:04:48 [api.detail] uri=https://www.douyin.com/aweme/v1/web/aweme/detail/ status=403 response_preview=<empty>
+2026-03-21T12:05:13 [browser.launch] channel=chrome
+2026-03-21T12:05:17 [fetch.resolve] input_url=https://v.douyin.com/w63c-v6DnRs/ page_url=https://www.douyin.com/video/7552835814783208742 detail_id=7552835814783208742
+2026-03-21T12:05:19 [api.detail] uri=https://www.douyin.com/aweme/v1/web/aweme/detail/ status=403 response_preview=<empty>
+2026-03-21T12:05:53 [browser.launch] channel=chrome
+2026-03-21T12:05:58 [fetch.resolve] input_url=https://v.douyin.com/w63c-v6DnRs/ page_url=https://www.douyin.com/video/7552835814783208742 detail_id=7552835814783208742
+2026-03-21T12:05:59 [api.detail] uri=https://www.douyin.com/aweme/v1/web/aweme/detail/ status=403 response_preview=<empty>
+2026-03-21T12:06:50 [browser.launch] channel=chrome
+2026-03-21T12:06:52 [api.user_profile] uri=/aweme/v1/web/user/profile/other/ status=200 response_preview={"extra":{"fatal_item_ids":[],"logid":"20260321130652BE7E761636E15EAACB86","now":1774069612000},"log_pb":{"impr_id":"20260321130652BE7E761636E15EAACB86"},"statu
+2026-03-21T12:06:54 [api.user_posts] uri=/aweme/v1/web/aweme/post/ status=200 response_preview={"status_code":0,"min_cursor":0,"max_cursor":1768391399000,"has_more":1,"aweme_list":[{"aweme_id":"7597793810105655962","desc":"我的爱 是青苹果的心脏\n（灵感来源：兰月亮）#手搓粉彩风转场来
+2026-03-21T12:06:54 [profile.fetch] profile_input=https://www.douyin.com/user/MS4wLjABAAAAoctrW5qzQp6h2H32mRKenXU_0-cmgjgOxIc768mlwjqKVjQbFdD1NeEzi2TMbGM0?from_tab_name=main&vid=7603723007215445386 sec_user_id=MS4wLjABAAAAoctrW5qzQp6h2H32mRKenXU_0-cmgjgOxIc768mlwjqKVjQbFdD1NeEzi2TMbGM0 start=1 count=20 returned=20 has_more=True
+2026-03-21T12:10:26 [browser.launch] channel=chrome
+2026-03-21T12:10:30 [fetch.resolve] input_url=https://v.douyin.com/w63c-v6DnRs/ page_url=https://www.douyin.com/video/7552835814783208742 detail_id=7552835814783208742
+2026-03-21T12:10:30 [api.detail] uri=/aweme/v1/web/aweme/detail/ status=403 response_preview=<empty>
+2026-03-21T12:10:42 [browser.launch] channel=chrome
+2026-03-21T12:10:45 [api.user_profile] uri=/aweme/v1/web/user/profile/other/ status=200 response_preview={"extra":{"fatal_item_ids":[],"logid":"20260321131044CE59A4A1E5E00AB57AF6","now":1774069844000},"log_pb":{"impr_id":"20260321131044CE59A4A1E5E00AB57AF6"},"statu
+2026-03-21T12:10:48 [api.user_posts] uri=/aweme/v1/web/aweme/post/ status=200 response_preview={"status_code":0,"min_cursor":0,"max_cursor":1768391399000,"has_more":1,"aweme_list":[{"aweme_id":"7597793810105655962","desc":"我的爱 是青苹果的心脏\n（灵感来源：兰月亮）#手搓粉彩风转场来
+2026-03-21T12:10:48 [profile.fetch] profile_input=https://www.douyin.com/user/MS4wLjABAAAAoctrW5qzQp6h2H32mRKenXU_0-cmgjgOxIc768mlwjqKVjQbFdD1NeEzi2TMbGM0?from_tab_name=main&vid=7603723007215445386 sec_user_id=MS4wLjABAAAAoctrW5qzQp6h2H32mRKenXU_0-cmgjgOxIc768mlwjqKVjQbFdD1NeEzi2TMbGM0 start=1 count=20 returned=20 has_more=True
+2026-03-21T12:13:55 [browser.launch] channel=chrome
+2026-03-21T12:13:58 [api.user_profile] uri=/aweme/v1/web/user/profile/other/ status=200 response_preview={"extra":{"fatal_item_ids":[],"logid":"20260321131357A6993B7C4CFDC0992CC5","now":1774070038000},"log_pb":{"impr_id":"20260321131357A6993B7C4CFDC0992CC5"},"statu
+2026-03-21T12:13:59 [api.user_posts] uri=/aweme/v1/web/aweme/post/ status=200 response_preview={"status_code":0,"min_cursor":0,"max_cursor":1766547044000,"has_more":1,"aweme_list":[{"aweme_id":"7440042185581399296","desc":"看好了 我就泼一次水#jk制服 #氛围感转场","create_
+2026-03-21T12:13:59 [profile.fetch] profile_input=https://www.douyin.com/user/MS4wLjABAAAAr0vow3ob-tPcoSMpaFCl-YP2Ky811_uTdmd0p3MnnHksTVi5k33WcDFXL_XP-m1K?from_tab_name=main&vid=7588831639631875328 sec_user_id=MS4wLjABAAAAr0vow3ob-tPcoSMpaFCl-YP2Ky811_uTdmd0p3MnnHksTVi5k33WcDFXL_XP-m1K start=1 count=20 returned=20 has_more=True
+2026-03-21T12:14:02 [download.refresh] detail_id=7617064594825153842 media_url=https://www.douyin.com/aweme/v1/play/?video_id=v0d00fg10000d6qjug7og65kptp9l5s0&line=0&file_id=7ee021ec76cd465b9ca981dc20363382&sign=b3df2fb7142d48fa4afe09353cbab7ac&is_play_url=1&source=PackSourceEnum_PUBLISH image_count=0 output_dir=D:\CodingTime\DYD\downloads\douyin\Fxinzi
+2026-03-21T12:14:07 [download.media.response] detail_id=7617064594825153842 media_url=https://www.douyin.com/aweme/v1/play/?video_id=v0d00fg10000d6qjug7og65kptp9l5s0&line=0&file_id=7ee021ec76cd465b9ca981dc20363382&sign=b3df2fb7142d48fa4afe09353cbab7ac&is_play_url=1&source=PackSourceEnum_PUBLISH response_url=https://v11-o.douyinvod.com/b3aaf66833f6ded8afd831e6e9aac7a6/69be3733/video/tos/cn/tos-cn-ve-15/ocz09WfKBAg0QeVzgIi42QNBQP3laapiAABS1E/?a=1128&ch=0&cr=0&dr=0&er=0&cd=0%7C0%7C0%7C0&cv=1&br=1455&bt=1455&cs=0&ds=4&ft=elc... status=200 content_type=video/mp4
+2026-03-21T12:14:07 [download.media.body] detail_id=7617064594825153842 bytes=1577662
+2026-03-21T12:14:07 [download.media.saved] detail_id=7617064594825153842 path=D:\CodingTime\DYD\downloads\douyin\Fxinzi\在我跟大陆失联的八个小时里 他向我坦白了一切#转场.mp4 bytes=1577662
+2026-03-21T12:43:36 [browser.launch] channel=chrome
+2026-03-21T12:43:41 [fetch.resolve] input_url=https://v.douyin.com/w63c-v6DnRs/ page_url=https://www.douyin.com/video/7552835814783208742 detail_id=7552835814783208742
+2026-03-21T12:43:42 [api.detail] uri=https://www.douyin.com/aweme/v1/web/aweme/detail/ status=403 response_preview=<empty>
+2026-03-21T12:44:15 [browser.launch] channel=chrome
+2026-03-21T12:44:18 [api.user_profile] uri=/aweme/v1/web/user/profile/other/ status=200 response_preview={"extra":{"fatal_item_ids":[],"logid":"2026032113441713631E0F4CB981881D95","now":1774071858000},"log_pb":{"impr_id":"2026032113441713631E0F4CB981881D95"},"statu
+2026-03-21T12:44:19 [api.user_posts] uri=/aweme/v1/web/aweme/post/ status=200 response_preview={"status_code":0,"min_cursor":0,"max_cursor":1772359697000,"has_more":1,"aweme_list":[{"aweme_id":"7592547346870620763","desc":"被你牵着的手是不可能的画面 #忧郁 #清冷感 #lilywei
+2026-03-21T12:44:19 [profile.fetch] profile_input=https://www.douyin.com/user/MS4wLjABAAAAI8Hx371RQ4CeUaaKvV0HKveCq1Za9T0I7lRw9ev_hc3EOe5-1XqNrEVDOaw3looJ?from_tab_name=main&vid=7616678492185855110 sec_user_id=MS4wLjABAAAAI8Hx371RQ4CeUaaKvV0HKveCq1Za9T0I7lRw9ev_hc3EOe5-1XqNrEVDOaw3looJ start=1 count=20 returned=20 has_more=True
+2026-03-21T12:44:24 [download.refresh] detail_id=7619276983831206377 media_url=https://www.douyin.com/aweme/v1/play/?video_id=v0200fg10000d6uhninog65ubb16riu0&line=0&file_id=d7433d7dce1c49aea981cf85f168b585&sign=472c4e112ca8a4519cf776e7e55faeee&is_play_url=1&source=PackSourceEnum_PUBLISH image_count=0 output_dir=D:\CodingTime\DYD\downloads\douyin\30634063080
+2026-03-21T12:44:26 [download.media.response] detail_id=7619276983831206377 media_url=https://www.douyin.com/aweme/v1/play/?video_id=v0200fg10000d6uhninog65ubb16riu0&line=0&file_id=d7433d7dce1c49aea981cf85f168b585&sign=472c4e112ca8a4519cf776e7e55faeee&is_play_url=1&source=PackSourceEnum_PUBLISH response_url=https://v11-o.douyinvod.com/fc9fe172afa55e8e1bff8c0bb1ebf830/69be3e59/video/tos/cn/tos-cn-ve-15/ff68d1fb61c64d9fbd6ad8eaa7bb1577/?a=1128&ch=0&cr=0&dr=0&er=0&cd=0%7C0%7C0%7C0&cv=1&br=2901&bt=2901&cs=0&ds=4&ft=elcAzLNM6... status=200 content_type=video/mp4
+2026-03-21T12:44:26 [download.media.body] detail_id=7619276983831206377 bytes=6214635
+2026-03-21T12:44:26 [download.media.saved] detail_id=7619276983831206377 path=D:\CodingTime\DYD\downloads\douyin\30634063080\我想 当你读懂我的隐喻后 我已经走了很远了 #走拍 #忧郁 #清冷感.mp4 bytes=6214635
+2026-03-21T12:49:55 [browser.launch] channel=chrome
+2026-03-21T12:50:00 [fetch.resolve] input_url=https://v.douyin.com/w63c-v6DnRs/ page_url=https://www.douyin.com/video/7552835814783208742 detail_id=7552835814783208742
+2026-03-21T12:50:01 [api.detail] uri=https://www.douyin.com/aweme/v1/web/aweme/detail/ status=403 response_preview=<empty>
+2026-03-21T12:50:15 [download.refresh] detail_id=7618909261285102847 media_url=https://www.douyin.com/aweme/v1/play/?video_id=v0200fg10000d6tsqbvog65s7l4joak0&line=0&file_id=bd59c59e1d1e44bfaedcc23cd8d05540&sign=ff5176d40d0de5e0edd8dc2e0a323110&is_play_url=1&source=PackSourceEnum_PUBLISH image_count=0 output_dir=D:\CodingTime\DYD\downloads\douyin\30634063080
+2026-03-21T12:50:16 [download.media.response] detail_id=7618909261285102847 media_url=https://www.douyin.com/aweme/v1/play/?video_id=v0200fg10000d6tsqbvog65s7l4joak0&line=0&file_id=bd59c59e1d1e44bfaedcc23cd8d05540&sign=ff5176d40d0de5e0edd8dc2e0a323110&is_play_url=1&source=PackSourceEnum_PUBLISH response_url=https://v11-o.douyinvod.com/fad3fe8c7530f921ee58a699ed234dcf/69be3fb0/video/tos/cn/tos-cn-ve-15/oMk7XKgufAI9saCGQB9pUcBo1iACiAv8PeCEH8/?a=1128&ch=0&cr=0&dr=0&er=0&cd=0%7C0%7C0%7C0&cv=1&br=2555&bt=2555&cs=0&ds=4&ft=elc... status=200 content_type=video/mp4
+2026-03-21T12:50:17 [download.media.body] detail_id=7618909261285102847 bytes=2867226
+2026-03-21T12:50:17 [download.media.saved] detail_id=7618909261285102847 path=D:\CodingTime\DYD\downloads\douyin\30634063080\在我跟大陆失联的八个小时里 他向我坦白了一切 #玫瑰米兰达 #rosemiranda高跟鞋#背影 #走拍.mp4 bytes=2867226
+2026-03-21T12:52:31 [browser.launch] channel=chrome
+2026-03-21T12:52:35 [fetch.resolve] input_url=https://v.douyin.com/w63c-v6DnRs/ page_url=https://www.douyin.com/video/7552835814783208742 detail_id=7552835814783208742
+2026-03-21T12:52:36 [api.detail] uri=https://www.douyin.com/aweme/v1/web/aweme/detail/ status=200 response_preview={"aweme_detail":{"activity_video_type":-1,"anchors":null,"authentication_token":"MS4wLjAAAAAAMvl8mMRFJfKfS3QaGJoJzeOsH9OYBvhacmXPXENaAq5lU92thEI67eJmcGutSDWlJ3H
+2026-03-21T12:52:36 [fetch.video] detail_id=7552835814783208742 media_url=https://www.douyin.com/aweme/v1/play/?video_id=v0300fg10000d38gun7og65iil9sb7qg&line=0&file_id=b3dcbb5271a24f2a8a3574cd852f4db6&sign=aed7d2885d3f28268ce1c733ac67b3e4&is_play_url=1&source=PackSourceEnum_AWEME_DETAIL image_count=0 duration=7 author=风信子 title=“吉隆坡的天气它是翻云又覆雨”#转场

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
@@ -82,21 +82,31 @@ class TikTokService:
 
     def fetch_videos(self, urls: list[str]) -> List[Video]:
         videos: List[Video] = []
+        last_exception: Exception | None = None
         for url in urls:
             url = url.strip()
             if not url:
                 continue
-            if self._douyin_local.is_douyin_url(url):
-                videos.append(self._douyin_local.fetch_video(url))
+            try:
+                if self._douyin_local.is_douyin_url(url):
+                    videos.append(self._douyin_local.fetch_video(url))
+                    continue
+                info = self._ydl.extract_info(url, download=False)
+                if "_type" in info and info["_type"] == "playlist":
+                    for entry in info.get("entries") or []:
+                        if not entry:
+                            continue
+                        videos.append(Video.from_ydl(entry))
+                else:
+                    videos.append(Video.from_ydl(info))
+            except Exception as exc:
+                print(f"Failed to fetch {url}: {exc}")
+                last_exception = exc
                 continue
-            info = self._ydl.extract_info(url, download=False)
-            if "_type" in info and info["_type"] == "playlist":
-                for entry in info.get("entries") or []:
-                    if not entry:
-                        continue
-                    videos.append(Video.from_ydl(entry))
-            else:
-                videos.append(Video.from_ydl(info))
+                
+        if not videos and last_exception is not None:
+            raise RuntimeError(f"Failed to fetch any videos. Last error: {last_exception}")
+            
         return videos
 
     def refresh_video(self, video: Video) -> Video:

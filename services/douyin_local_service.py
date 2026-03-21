@@ -138,7 +138,10 @@ class DouyinLocalService:
             raise RuntimeError("Could not resolve a valid Douyin video ID for this URL.")
         self._debug("fetch.resolve", input_url=original_url, page_url=page.url, detail_id=detail_id)
 
-        aweme_detail = await self._request_video_detail(context, page, detail_id)
+        referer_url = (page.url or "").strip()
+        if not referer_url or "douyin.com/video/" not in referer_url:
+            referer_url = (original_url or "").strip()
+        aweme_detail = await self._request_video_detail(context, page, detail_id, referer_url=referer_url)
         if not aweme_detail:
             raise RuntimeError(
                 "Douyin returned an empty video detail. Your login session may have expired, so please login again."
@@ -391,16 +394,20 @@ class DouyinLocalService:
         self._window_hidden = False
 
     async def _launch_persistent_context(self) -> BrowserContext:
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
         launch_kwargs = {
             "user_data_dir": str(self._user_data_dir),
             "accept_downloads": False,
-            "headless": False,
+            "headless": True,
             "viewport": {"width": 1920, "height": 1080},
+            "device_scale_factor": 1,
             "ignore_default_args": ["--enable-automation"],
             "args": [
                 "--disable-blink-features=AutomationControlled",
                 "--disable-infobars",
+                "--window-size=1920,1080",
             ],
+            "user_agent": user_agent,
         }
         browser_type = self._playwright.chromium  # type: ignore[union-attr]
         attempts: tuple[dict[str, Any], ...] = (
@@ -478,8 +485,22 @@ class DouyinLocalService:
 
         return ""
 
-    async def _request_video_detail(self, context: BrowserContext, page: Page, detail_id: str) -> dict[str, Any]:
-        data = await self._request_douyin_get(context, page, self._DETAIL_API, {"aweme_id": detail_id}, "detail")
+    async def _request_video_detail(
+        self,
+        context: BrowserContext,
+        page: Page,
+        detail_id: str,
+        referer_url: str = "",
+    ) -> dict[str, Any]:
+        data = await self._request_douyin_get(
+            context,
+            page,
+            self._DETAIL_API,
+            {"aweme_id": detail_id},
+            "detail",
+            referer_override=referer_url or None,
+            origin_override=None,
+        )
         return data.get("aweme_detail") or {}
 
     async def _request_user_profile(self, context: BrowserContext, page: Page, sec_user_id: str) -> dict[str, Any]:
@@ -493,6 +514,7 @@ class DouyinLocalService:
                 "personal_center_strategy": 1,
             },
             "user_profile",
+            origin_override=self._DOUYIN_HOME,
         )
         return data
 
@@ -516,6 +538,7 @@ class DouyinLocalService:
                 "publish_video_strategy_type": 2,
             },
             "user_posts",
+            origin_override=self._DOUYIN_HOME,
         )
         return data
 
@@ -526,6 +549,9 @@ class DouyinLocalService:
         uri: str,
         params: dict[str, Any],
         debug_label: str,
+        *,
+        referer_override: str | None = None,
+        origin_override: str | None = None,
     ) -> dict[str, Any]:
         cookie_dict = self._cookie_dict(await context.cookies())
         cookie_str = ";".join(f"{key}={value}" for key, value in cookie_dict.items())
@@ -543,19 +569,19 @@ class DouyinLocalService:
                 "pc_client_type": "1",
                 "cookie_enabled": "true",
                 "browser_language": "zh-CN",
-                "browser_platform": "MacIntel",
+                "browser_platform": "Win32",
                 "browser_name": "Chrome",
-                "browser_version": "125.0.0.0",
+                "browser_version": "129.0.0.0",
                 "browser_online": "true",
                 "engine_name": "Blink",
                 "engine_version": "109.0",
-                "os_name": "Mac OS",
-                "os_version": "10.15.7",
+                "os_name": "Windows",
+                "os_version": "10",
                 "cpu_core_num": "8",
                 "device_memory": "8",
                 "platform": "PC",
-                "screen_width": "2560",
-                "screen_height": "1440",
+                "screen_width": "1920",
+                "screen_height": "1080",
                 "effective_type": "4g",
                 "round_trip_time": "50",
                 "webid": self._generate_web_id(),
@@ -569,11 +595,12 @@ class DouyinLocalService:
             "User-Agent": user_agent,
             "Cookie": cookie_str,
             "Host": "www.douyin.com",
-            "Referer": page.url or self._DOUYIN_HOME,
-            "Origin": self._DOUYIN_HOME,
+            "Referer": referer_override or (page.url or self._DOUYIN_HOME),
             "Accept": "application/json, text/plain, */*",
             "Content-Type": "application/json;charset=UTF-8",
         }
+        if origin_override is not None:
+            headers["Origin"] = origin_override
 
         async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
             response = await client.get(f"https://www.douyin.com{uri}" if uri.startswith("/") else uri, params=request_params, headers=headers)
@@ -776,8 +803,8 @@ class DouyinLocalService:
                 "windowState": "normal",
                 "left": -2400,
                 "top": 80,
-                "width": 1400,
-                "height": 1000,
+                "width": 1920,
+                "height": 1080,
             },
         )
         self._window_hidden = True
@@ -791,8 +818,8 @@ class DouyinLocalService:
                 "windowState": "normal",
                 "left": 120,
                 "top": 80,
-                "width": 1400,
-                "height": 1000,
+                "width": 1920,
+                "height": 1080,
             },
         )
         self._window_hidden = False
