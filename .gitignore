@@ -14,7 +14,7 @@ ENV/
 browser_data/
 downloads/
 session_cache*.json
-download_history.json
+download_history*.json
 
 # Build / packaging artifacts
 build/
