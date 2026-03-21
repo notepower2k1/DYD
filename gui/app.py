@@ -73,7 +73,6 @@ class TikTokDownloaderApp:
         self.platform_var = tk.StringVar(value="tiktok")
         self.platform_choice_var = tk.StringVar(value="")
         self._build_settings_controls()
-        self._apply_douyin_backend_settings(save=False)
 
         self._build_styles()
         self._build_ui()
@@ -339,6 +338,7 @@ class TikTokDownloaderApp:
 
         self.fetch_links_btn = ttk.Button(controls_panel, text="Fetch Multi Links", command=self.on_fetch_multi_links, style="Secondary.TButton")
         self.fetch_links_btn.pack(side=tk.LEFT)
+        ttk.Button(controls_panel, text="Clean Links", command=self.on_clean_multi_links, style="Secondary.TButton").pack(side=tk.LEFT, padx=(8, 0))
 
         self._build_video_tools(
             self.multi_tab,
@@ -584,12 +584,6 @@ class TikTokDownloaderApp:
         self.batch_size_var = tk.StringVar(value="20")
         self.trend_threshold_var = tk.StringVar(value="0.80")
         self.douyin_login_status_var = tk.StringVar(value="Douyin login is not ready.")
-        self.douyin_backend_enabled_var = tk.BooleanVar(value=True)
-        self.douyin_backend_autostart_var = tk.BooleanVar(value=True)
-        self.douyin_backend_url_var = tk.StringVar(value="http://127.0.0.1:5555")
-        self.douyin_backend_token_var = tk.StringVar(value="")
-        self.douyin_backend_endpoint_var = tk.StringVar(value="/douyin/detail")
-        self.douyin_backend_command_var = tk.StringVar(value="")
 
     def _show_profile_welcome_state(self) -> None:
         is_douyin = self.platform_var.get().strip().lower() == "douyin"
@@ -755,33 +749,6 @@ class TikTokDownloaderApp:
             style="Secondary.TButton",
             command=self._login_to_douyin,
         ).pack(side=tk.LEFT)
-        ttk.Button(
-            login_row,
-            text="Show Douyin Browser",
-            style="Secondary.TButton",
-            command=self._show_douyin_browser,
-        ).pack(side=tk.LEFT, padx=(8, 0))
-
-        backend_row = ttk.Frame(panel, style="Panel.TFrame")
-        backend_row.pack(fill=tk.X, pady=(16, 0))
-        ttk.Label(backend_row, text="Douyin engine", style="Muted.TLabel").pack(anchor="w")
-        ttk.Checkbutton(
-            backend_row,
-            text="Use embedded Douyin Playwright engine in Multi-link",
-            variable=self.douyin_backend_enabled_var,
-            command=self._apply_douyin_backend_settings,
-        ).pack(anchor="w", pady=(4, 8))
-
-        ttk.Label(
-            backend_row,
-            text=(
-                "Douyin links now use an embedded Playwright-based engine inside this app. "
-                "No separate backend API process is required."
-            ),
-            style="Muted.TLabel",
-            wraplength=620,
-            justify=tk.LEFT,
-        ).pack(anchor="w", pady=(8, 0))
 
         folder_row = ttk.Frame(panel, style="Panel.TFrame")
         folder_row.pack(fill=tk.X, pady=(16, 0))
@@ -1106,7 +1073,35 @@ class TikTokDownloaderApp:
         raw = self.multi_links_text.get("1.0", tk.END)
         if not raw:
             return []
-        return [p.strip() for p in raw.replace("\n", " ").split(" ") if p.strip()]
+        return self._extract_urls(raw)
+
+    def on_clean_multi_links(self) -> None:
+        raw = self.multi_links_text.get("1.0", tk.END)
+        cleaned = self._extract_urls(raw)
+        self.multi_links_text.delete("1.0", tk.END)
+        if cleaned:
+            self.multi_links_text.insert("1.0", "\n".join(cleaned))
+
+    @staticmethod
+    def _extract_urls(text: str) -> List[str]:
+        import re
+
+        if not text:
+            return []
+        candidates = re.findall(r"https?://[^\s]+", text)
+        cleaned: list[str] = []
+        for url in candidates:
+            url = url.strip().strip(")\"]'.,，。！!？?；;：:")
+            if url:
+                cleaned.append(url)
+        seen = set()
+        ordered: list[str] = []
+        for url in cleaned:
+            if url in seen:
+                continue
+            seen.add(url)
+            ordered.append(url)
+        return ordered
 
     @staticmethod
     def _video_identity(video: Video) -> str:
@@ -1236,28 +1231,6 @@ class TikTokDownloaderApp:
         self.status_var.set("Opening Douyin login window...")
         self._do_douyin_login()
 
-    def _apply_douyin_backend_settings(self, save: bool = True) -> None:
-        self.tiktok_service.configure_douyin_backend(True, "", "", "")
-        if save:
-            self._save_session_cache()
-
-    def _is_douyin_backend_healthy(self) -> bool:
-        return True
-
-    def _auto_start_douyin_backend_on_launch(self) -> None:
-        return
-
-    def _start_douyin_backend_if_needed(self, show_error: bool) -> bool:
-        del show_error
-        return True
-
-    def _wait_for_douyin_backend(self, timeout_ms: int = 12000) -> bool:
-        del timeout_ms
-        return True
-
-    def _ensure_douyin_backend_ready(self, urls: List[str]) -> bool:
-        del urls
-        return True
 
     @run_in_thread
     def _do_douyin_login(self) -> None:
@@ -1416,7 +1389,6 @@ class TikTokDownloaderApp:
     def _close_settings_popup(self) -> None:
         self._page_size = self._get_page_size()
         self._apply_trend_threshold()
-        self._apply_douyin_backend_settings()
         self._save_session_cache()
         popup = self._settings_popup
         self._settings_popup = None
@@ -2488,12 +2460,6 @@ class TikTokDownloaderApp:
             },
             "page_size": self._page_size,
             "trend_threshold": self._get_trend_threshold(),
-            "douyin_backend_enabled": bool(self.douyin_backend_enabled_var.get()),
-            "douyin_backend_autostart": bool(self.douyin_backend_autostart_var.get()),
-            "douyin_backend_url": self.douyin_backend_url_var.get().strip(),
-            "douyin_backend_token": self.douyin_backend_token_var.get().strip(),
-            "douyin_backend_endpoint": self.douyin_backend_endpoint_var.get().strip(),
-            "douyin_backend_command": self.douyin_backend_command_var.get().strip(),
             "platform_sessions": {
                 name: self._build_platform_session_payload(state)
                 for name, state in self._platform_states.items()
@@ -2599,15 +2565,6 @@ class TikTokDownloaderApp:
             trend_threshold = float(data.get("trend_threshold") or 0.8)
             if 0.3 <= trend_threshold <= 1.0:
                 self.trend_threshold_var.set(f"{trend_threshold:.2f}")
-            self.douyin_backend_enabled_var.set(bool(data.get("douyin_backend_enabled", True)))
-            self.douyin_backend_autostart_var.set(bool(data.get("douyin_backend_autostart", True)))
-            self.douyin_backend_url_var.set(str(data.get("douyin_backend_url") or "http://127.0.0.1:5555").strip())
-            self.douyin_backend_token_var.set(str(data.get("douyin_backend_token") or "").strip())
-            self.douyin_backend_endpoint_var.set(
-                str(data.get("douyin_backend_endpoint") or "/douyin/detail").strip()
-            )
-            self.douyin_backend_command_var.set(str(data.get("douyin_backend_command") or "").strip())
-            self._apply_douyin_backend_settings(save=False)
             self._update_douyin_login_status()
             has_legacy_session = any(
                 key in data
