@@ -98,8 +98,10 @@ class VideoCard(ttk.Frame):
         stats_bar = tk.Frame(thumb_frame, bg="#0b1020")
         stats_bar.place(relx=0.0, rely=1.0, anchor="sw", relwidth=1.0)
 
-        left_icon = "♥" if (video.platform or "").lower() == "douyin" else "▶"
-        left_value = video.like_count if (video.platform or "").lower() == "douyin" else video.view_count
+        platform = (video.platform or "").lower()
+        uses_like_metric = platform in {"douyin", "xhs"}
+        left_icon = "♥" if uses_like_metric else "▶"
+        left_value = video.like_count if uses_like_metric else video.view_count
 
         left_stats = tk.Label(
             stats_bar,
@@ -286,7 +288,8 @@ class VideoCard(ttk.Frame):
         if self.video.upload_time:
             hours = max((datetime.now() - self.video.upload_time).total_seconds() / 3600.0, 1.0)
 
-        is_douyin = (self.video.platform or "").lower() == "douyin"
+        platform = (self.video.platform or "").lower()
+        is_douyin = platform in {"douyin", "xhs"}
         metric_lines = (
             f"Likes: {self._format_optional_count(self.video.like_count)}\n"
             f"Comments: {self._format_optional_count(self.video.comment_count)}\n"

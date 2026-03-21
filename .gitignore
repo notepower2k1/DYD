@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 douyin_debug.log
+*.log
 *$py.class
 
 # Virtual environments

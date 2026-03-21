@@ -14,12 +14,14 @@ from models.profile import Profile
 from models.video import Video
 from services.download_service import DownloadService
 from services.douyin_local_service import DouyinLocalService
+from services.xhs_local_service import XhsLocalService
 
 
 class TikTokService:
     def __init__(self) -> None:
         self._cookie_file: str | None = None
         self._douyin_local = DouyinLocalService()
+        self._xhs_local = XhsLocalService()
         self._ydl = self._create_ydl()
 
     def _base_opts(self) -> Dict[str, Any]:
@@ -50,6 +52,24 @@ class TikTokService:
     def login_to_douyin(self, timeout_seconds: int = 240) -> bool:
         return self._douyin_local.login(timeout_seconds=timeout_seconds)
 
+    def has_xhs_login_session(self, strict: bool = True) -> bool:
+        return self._xhs_local.has_login_session(strict=strict)
+
+    def login_to_xhs(self, timeout_seconds: int = 240) -> bool:
+        return self._xhs_local.login(timeout_seconds=timeout_seconds)
+
+    def enable_xhs_debug(self, enabled: bool = True) -> None:
+        self._xhs_local.enable_debug(enabled)
+
+    def show_xhs_browser(self) -> None:
+        self._xhs_local.show_browser()
+
+    def hide_xhs_browser(self) -> None:
+        self._xhs_local.hide_browser()
+
+    def clear_xhs_session(self) -> None:
+        self._xhs_local.clear_session()
+
     def show_douyin_browser(self) -> None:
         self._douyin_local.show_browser()
 
@@ -61,6 +81,7 @@ class TikTokService:
 
     def close(self) -> None:
         self._douyin_local.close()
+        self._xhs_local.close()
 
     def configure_douyin_backend(
         self,
@@ -91,6 +112,9 @@ class TikTokService:
             try:
                 if self._douyin_local.is_douyin_url(url):
                     videos.append(self._douyin_local.fetch_video(url))
+                    continue
+                if self._xhs_local.is_xhs_url(url):
+                    videos.append(self._xhs_local.fetch_video(url))
                     continue
                 info = self._ydl.extract_info(url, download=False)
                 if "_type" in info and info["_type"] == "playlist":
@@ -123,6 +147,8 @@ class TikTokService:
             return [], False, 0, ""
         if str(platform).lower() == "douyin":
             return self._douyin_local.search_by_keyword(term, offset=offset, count=count, options=options or {})
+        if str(platform).lower() in {"xhs", "xiaohongshu", "xiaohongshu"}:
+            return self._xhs_local.search_by_keyword(term, offset=offset, count=count, options=options or {})
         url = f"https://www.tiktok.com/search?q={quote(term)}"
         return self.fetch_videos([url]), False, 0, ""
 
@@ -132,6 +158,11 @@ class TikTokService:
             return video
         if self._douyin_local.is_douyin_url(url) or (video.platform or "").lower() == "douyin":
             refreshed = self._douyin_local.fetch_video(url)
+            refreshed.is_downloaded = video.is_downloaded
+            refreshed.downloaded_path = video.downloaded_path
+            return refreshed
+        if self._xhs_local.is_xhs_url(url) or (video.platform or "").lower() == "xhs":
+            refreshed = self._xhs_local.fetch_video(url)
             refreshed.is_downloaded = video.is_downloaded
             refreshed.downloaded_path = video.downloaded_path
             return refreshed
@@ -145,6 +176,8 @@ class TikTokService:
     def download_video(self, video: Video, output_dir: Path, progress_hook=None) -> Path:
         if self._douyin_local.is_douyin_url(video.url) or (video.platform or "").lower() == "douyin":
             return self._douyin_local.download_video(video, output_dir, progress_hook=progress_hook)
+        if self._xhs_local.is_xhs_url(video.url) or (video.platform or "").lower() == "xhs":
+            return self._xhs_local.download_video(video, output_dir, progress_hook=progress_hook)
         service = DownloadService(output_dir, cookie_file=self._cookie_file, video_resolver=self.refresh_video)
         return service.download_video(video, progress_hook=progress_hook)
 
@@ -161,6 +194,8 @@ class TikTokService:
             return [], False, None
         if self._douyin_local.is_douyin_url(url):
             return self._douyin_local.fetch_profile_videos_paged(url, start, count)
+        if self._xhs_local.is_xhs_url(url) or self._xhs_local.is_xhs_user_id(url):
+            return self._xhs_local.fetch_profile_videos_paged(url, start, count)
 
         end = start + count - 1
         opts = {

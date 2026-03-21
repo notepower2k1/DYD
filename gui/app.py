@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 import shutil
@@ -45,6 +45,7 @@ class TikTokDownloaderApp:
         self._workspace_caches = {
             "tiktok": SessionCacheService(Path.cwd() / "session_cache_tiktok.json"),
             "douyin": SessionCacheService(Path.cwd() / "session_cache_douyin.json"),
+            "xhs": SessionCacheService(Path.cwd() / "session_cache_xhs.json"),
         }
 
         self.profile_videos: List[Video] = []
@@ -84,7 +85,7 @@ class TikTokDownloaderApp:
     def _build_platform_states(self) -> dict[str, dict[str, Any]]:
         base_download_dir = Path.cwd() / "downloads"
         states: dict[str, dict[str, Any]] = {}
-        for platform in ("tiktok", "douyin"):
+        for platform in ("tiktok", "douyin", "xhs"):
             output_dir = base_download_dir / platform
             output_dir.mkdir(parents=True, exist_ok=True)
             states[platform] = {
@@ -232,7 +233,7 @@ class TikTokDownloaderApp:
 
         self._build_platform_card(cards, "TikTok", "Profile tools, multi-link fetch, downloads", True, lambda: self._enter_platform("tiktok")).pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
         self._build_platform_card(cards, "Douyin", "Profile tools, multi-link fetch, downloads", True, lambda: self._enter_platform("douyin")).pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
-        self._build_platform_card(cards, "Xiaohongshu", "Coming soon", False, None).pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0))
+        self._build_platform_card(cards, "Rednote", "Profile tools, multi-link fetch, downloads", True, lambda: self._enter_platform("xhs")).pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0))
 
     def _build_platform_card(self, master: ttk.Frame, title: str, subtitle: str, enabled: bool, command) -> ttk.Frame:
         card = ttk.Frame(master, padding=16, style="Panel.TFrame")
@@ -441,7 +442,7 @@ class TikTokDownloaderApp:
             textvariable=self.search_duration_var,
             state="readonly",
             width=10,
-            values=("All", "< 1 min", "1–5 min"),
+            values=("All", "< 1 min", "1 min - 5 min"),
         ).pack(side=tk.LEFT, padx=(6, 10))
 
         ttk.Label(options_panel, text="Scope", style="Muted.TLabel").pack(side=tk.LEFT)
@@ -499,7 +500,7 @@ class TikTokDownloaderApp:
         ).pack(side=tk.LEFT)
         ttk.Label(
             header,
-            text="Mark videos with ★ to keep them for later.",
+            text="Mark videos with ? to keep them for later.",
             style="Muted.TLabel",
         ).pack(side=tk.LEFT, padx=(12, 0))
 
@@ -584,14 +585,22 @@ class TikTokDownloaderApp:
         self.batch_size_var = tk.StringVar(value="20")
         self.trend_threshold_var = tk.StringVar(value="0.80")
         self.douyin_login_status_var = tk.StringVar(value="Douyin login is not ready.")
+        self.rednote_login_status_var = tk.StringVar(value="Rednote login is not ready.")
+        self.rednote_debug_var = tk.BooleanVar(value=False)
 
     def _show_profile_welcome_state(self) -> None:
-        is_douyin = self.platform_var.get().strip().lower() == "douyin"
-        self.profile_name_var.set("Discover a Douyin profile" if is_douyin else "Discover a TikTok profile")
+        platform = self.platform_var.get().strip().lower()
+        is_douyin = platform == "douyin"
+        is_xhs = platform == "xhs"
+        self.profile_name_var.set(
+            "Discover a Douyin profile"
+            if is_douyin
+            else ("Discover a Rednote profile" if is_xhs else "Discover a TikTok profile")
+        )
         self.profile_extra_var.set(
             "Paste a Douyin profile URL or sec_user_id to load videos, or continue from the last cached session."
             if is_douyin
-            else "Paste a profile URL to load videos, or continue from the last cached session."
+            else ("Paste a Rednote profile URL or user ID to load notes, or continue from the last cached session." if is_xhs else "Paste a profile URL to load videos, or continue from the last cached session.")
         )
         self.profile_avatar_label.configure(text="@", image="", anchor="center", background="#dfe8f7", foreground="#6a7da6", font=("Segoe UI", 18, "bold"))
         self._profile_avatar_img = None
@@ -682,6 +691,7 @@ class TikTokDownloaderApp:
             self._settings_popup.focus_force()
             return
         self._update_douyin_login_status()
+        self._update_rednote_login_status()
 
         popup = tk.Toplevel(self.root)
         popup.title("Settings")
@@ -750,6 +760,52 @@ class TikTokDownloaderApp:
             command=self._login_to_douyin,
         ).pack(side=tk.LEFT)
 
+        rednote_row = ttk.Frame(panel, style="Panel.TFrame")
+        rednote_row.pack(fill=tk.X, pady=(12, 0))
+        ttk.Label(rednote_row, text="Rednote login", style="Muted.TLabel").pack(anchor="w")
+        ttk.Label(
+            rednote_row,
+            text=(
+                "Open a Rednote browser session and log in once. "
+                "Clear the stored browser data if login is stuck or the app reports a stale session."
+            ),
+            style="Muted.TLabel",
+            wraplength=620,
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=(4, 8))
+        ttk.Label(
+            rednote_row,
+            textvariable=self.rednote_login_status_var,
+            style="Muted.TLabel",
+            wraplength=620,
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=(0, 8))
+        ttk.Checkbutton(
+            rednote_row,
+            text="Keep Rednote browser visible (debug)",
+            variable=self.rednote_debug_var,
+            command=self._toggle_rednote_debug,
+        ).pack(anchor="w", pady=(0, 8))
+        rednote_buttons = ttk.Frame(rednote_row, style="Panel.TFrame")
+        rednote_buttons.pack(anchor="w")
+        ttk.Button(
+            rednote_buttons,
+            text="Login to Rednote",
+            style="Secondary.TButton",
+            command=self._login_to_rednote,
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(
+            rednote_buttons,
+            text="Show Rednote Browser",
+            style="Secondary.TButton",
+            command=self._show_rednote_browser,
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(
+            rednote_buttons,
+            text="Clear Rednote Session",
+            style="Secondary.TButton",
+            command=self._clear_rednote_session,
+        ).pack(side=tk.LEFT)
         folder_row = ttk.Frame(panel, style="Panel.TFrame")
         folder_row.pack(fill=tk.X, pady=(16, 0))
         ttk.Label(folder_row, text="Download folder", style="Muted.TLabel").pack(anchor="w")
@@ -794,7 +850,9 @@ class TikTokDownloaderApp:
     def _set_platform(self, platform: str, save: bool = True, sync_current: bool = True) -> None:
         if sync_current:
             self._sync_platform_state()
-        platform = "douyin" if str(platform).lower() == "douyin" else "tiktok"
+        platform = str(platform).lower().strip()
+        if platform not in {"tiktok", "douyin", "xhs"}:
+            platform = "tiktok"
         self.platform_var.set(platform)
         self._apply_platform_state(platform)
         self._refresh_platform_ui(save=save)
@@ -933,38 +991,56 @@ class TikTokDownloaderApp:
             self.notebook.select(self.profile_tab)
 
     def _platform_display_name(self) -> str:
-        return "Douyin" if self.platform_var.get().strip().lower() == "douyin" else "TikTok"
+        platform = self.platform_var.get().strip().lower()
+        if platform == "douyin":
+            return "Douyin"
+        if platform == "xhs":
+            return "Rednote"
+        return "TikTok"
 
     def _refresh_platform_ui(self, save: bool = True) -> None:
         platform = self.platform_var.get().strip().lower() or "tiktok"
         is_douyin = platform == "douyin"
-        self.current_platform_title_var.set("Douyin Workspace" if is_douyin else "TikTok Workspace")
+        is_xhs = platform == "xhs"
+        self.current_platform_title_var.set(
+            "Douyin Workspace" if is_douyin else ("Rednote Workspace" if is_xhs else "TikTok Workspace")
+        )
 
         self.platform_hint_var.set(
             "Douyin mode: profile and video tools."
             if is_douyin
-            else "TikTok mode: profile and video tools."
+            else ("Rednote mode: profile and video tools." if is_xhs else "TikTok mode: profile and video tools.")
         )
 
         self.profile_url_input.label.configure(
-            text="Single Douyin profile URL" if is_douyin else "Single TikTok profile URL"
+            text=(
+                "Single Douyin profile URL"
+                if is_douyin
+                else ("Single Rednote profile URL or user ID" if is_xhs else "Single TikTok profile URL")
+            )
         )
         self.fetch_profile_btn.configure(
-            text="Fetch Douyin Profile Videos" if is_douyin else "Fetch Profile Videos"
+            text=(
+                "Fetch Douyin Profile Videos"
+                if is_douyin
+                else ("Fetch Rednote Profile Notes" if is_xhs else "Fetch Profile Videos")
+            )
         )
         self.multi_links_label.configure(
-            text="Multiple Douyin video URLs (space/newline separated)"
-            if is_douyin
-            else "Multiple TikTok video URLs (space/newline separated)"
+            text=(
+                "Multiple Douyin video URLs (space/newline separated)"
+                if is_douyin
+                else ("Multiple Rednote note URLs (space/newline separated)" if is_xhs else "Multiple TikTok video URLs (space/newline separated)")
+            )
         )
         self.fetch_links_btn.configure(
-            text="Fetch Douyin Links" if is_douyin else "Fetch TikTok Links"
+            text="Fetch Douyin Links" if is_douyin else ("Fetch Rednote Links" if is_xhs else "Fetch TikTok Links")
         )
         if not self.profile_videos:
             self._show_profile_welcome_state()
-        self._refresh_video_tool_ui("profile", is_douyin)
-        self._refresh_video_tool_ui("multi", is_douyin)
-        self._refresh_video_tool_ui("search", is_douyin)
+        self._refresh_video_tool_ui("profile", is_douyin or is_xhs)
+        self._refresh_video_tool_ui("multi", is_douyin or is_xhs)
+        self._refresh_video_tool_ui("search", is_douyin or is_xhs)
 
         try:
             self.notebook.add(self.profile_tab, text="Profile")
@@ -975,7 +1051,7 @@ class TikTokDownloaderApp:
             self.status_var.set(
                 "Douyin mode is active. Choose Profile or Multi-link."
                 if is_douyin
-                else "TikTok mode is active. Choose Profile or Multi-link."
+                else ("Rednote mode is active. Choose Profile or Multi-link." if is_xhs else "TikTok mode is active. Choose Profile or Multi-link.")
             )
 
         if save:
@@ -1091,7 +1167,7 @@ class TikTokDownloaderApp:
         candidates = re.findall(r"https?://[^\s]+", text)
         cleaned: list[str] = []
         for url in candidates:
-            url = url.strip().strip(")\"]'.,，。！!？?；;：:")
+            url = url.strip().strip(")\"]'.,,?!!??;;::")
             if url:
                 cleaned.append(url)
         seen = set()
@@ -1226,11 +1302,30 @@ class TikTokDownloaderApp:
         else:
             self.douyin_login_status_var.set("Douyin login is required before fetching Douyin videos.")
 
+    def _update_rednote_login_status(self) -> None:
+        # Use lightweight check here to avoid launching the browser just to show status.
+        if self.tiktok_service.has_xhs_login_session(strict=False):
+            self.rednote_login_status_var.set("Rednote login session is available.")
+        else:
+            self.rednote_login_status_var.set("Rednote login is required before fetching Rednote notes.")
+
     def _login_to_douyin(self) -> None:
         self.douyin_login_status_var.set("Opening Douyin login window...")
         self.status_var.set("Opening Douyin login window...")
         self._do_douyin_login()
 
+    def _login_to_rednote(self) -> None:
+        self.rednote_login_status_var.set("Opening Rednote login window...")
+        self.status_var.set("Opening Rednote login window...")
+        self._do_rednote_login()
+
+    def _toggle_rednote_debug(self) -> None:
+        enabled = bool(self.rednote_debug_var.get())
+        self.tiktok_service.enable_xhs_debug(enabled)
+        if enabled:
+            self.status_var.set("Rednote debug is enabled. Browser will stay visible.")
+        else:
+            self.status_var.set("Rednote debug is disabled.")
 
     @run_in_thread
     def _do_douyin_login(self) -> None:
@@ -1257,6 +1352,60 @@ class TikTokDownloaderApp:
         self._update_douyin_login_status()
         self.status_var.set("Could not start the Douyin login flow.")
         messagebox.showerror("Douyin Login", str(exc))
+
+    @run_in_thread
+    def _do_rednote_login(self) -> None:
+        try:
+            ok = self.tiktok_service.login_to_xhs(timeout_seconds=240)
+        except Exception as exc:  # noqa: BLE001
+            self.root.after(0, lambda exc=exc: self._handle_rednote_login_error(exc))
+            return
+        self.root.after(0, lambda: self._handle_rednote_login_result(ok))
+
+    def _handle_rednote_login_result(self, ok: bool) -> None:
+        self._update_rednote_login_status()
+        if ok:
+            self.status_var.set("Rednote login session is ready.")
+            messagebox.showinfo("Rednote Login", "Rednote login completed. You can fetch Rednote notes now.")
+        else:
+            self.status_var.set("Rednote login was not completed.")
+            messagebox.showwarning(
+                "Rednote Login",
+                "The login window was closed before a valid Rednote session was detected.",
+            )
+
+    def _handle_rednote_login_error(self, exc: Exception) -> None:
+        self._update_rednote_login_status()
+        self.status_var.set("Could not start the Rednote login flow.")
+        messagebox.showerror("Rednote Login", str(exc))
+
+    @run_in_thread
+    def _show_rednote_browser(self) -> None:
+        try:
+            self.tiktok_service.show_xhs_browser()
+        except Exception as exc:  # noqa: BLE001
+            self.root.after(0, lambda exc=exc: messagebox.showerror("Rednote Browser", str(exc)))
+            return
+        self.root.after(0, self._handle_rednote_browser_shown)
+
+    def _handle_rednote_browser_shown(self) -> None:
+        self.status_var.set("Rednote browser is now visible.")
+        self.rednote_login_status_var.set("Rednote browser is visible. Log in there if needed.")
+
+    def _clear_rednote_session(self) -> None:
+        if not messagebox.askyesno(
+            "Clear Rednote Session",
+            "This will remove the saved Rednote browser data so you can log in again. Continue?",
+        ):
+            return
+        try:
+            self.tiktok_service.clear_xhs_session()
+        except Exception as exc:  # noqa: BLE001
+            self.status_var.set("Could not clear Rednote session.")
+            messagebox.showerror("Clear Rednote Session", str(exc))
+            return
+        self.status_var.set("Rednote session cleared.")
+        messagebox.showinfo("Clear Rednote Session", "Rednote session cleared. Please log in again.")
 
     @run_in_thread
     def _show_douyin_browser(self) -> None:
@@ -1401,7 +1550,9 @@ class TikTokDownloaderApp:
         popup.destroy()
 
     def on_fetch_profile(self) -> None:
-        is_douyin = self.platform_var.get().strip().lower() == "douyin"
+        platform = self.platform_var.get().strip().lower()
+        is_douyin = platform == "douyin"
+        is_xhs = platform == "xhs"
         url = self.profile_url_input.get().strip()
         if not url:
             messagebox.showwarning("Missing URL", "Please enter one profile URL.")
@@ -1412,16 +1563,34 @@ class TikTokDownloaderApp:
                 "Douyin mode is active.\n\nPlease enter a Douyin profile URL or sec_user_id.",
             )
             return
+        if is_xhs and not self._is_xhs_url(url) and not self._is_xhs_user_id(url):
+            messagebox.showwarning(
+                "Wrong Platform",
+                "Rednote mode is active.\n\nPlease enter a Rednote profile URL or user ID.",
+            )
+            return
         if not is_douyin and "douyin.com" in url.lower():
             messagebox.showwarning(
                 "Wrong Platform",
                 "TikTok mode is active.\n\nPlease switch to Douyin mode for Douyin profiles.",
             )
             return
+        if not is_douyin and not is_xhs and self._is_xhs_url(url):
+            messagebox.showwarning(
+                "Wrong Platform",
+                "TikTok mode is active.\n\nPlease switch to Rednote mode for Rednote profiles.",
+            )
+            return
         if is_douyin and not self.tiktok_service.has_douyin_login_session():
             messagebox.showwarning(
                 "Douyin Login Required",
                 "Please open Settings and click 'Login to Douyin' before fetching Douyin profiles.",
+            )
+            return
+        if is_xhs and not self.tiktok_service.has_xhs_login_session(strict=True):
+            messagebox.showwarning(
+                "Rednote Login Required",
+                "Please open Settings and login to Rednote before fetching Rednote profiles.",
             )
             return
 
@@ -1436,7 +1605,13 @@ class TikTokDownloaderApp:
         self.profile_grid.show_skeleton(self._page_size)
         self._refresh_load_more_button()
 
-        self.profile = Profile(username=self._extract_username_from_url(url) if not is_douyin else url)
+        if is_douyin:
+            profile_key = url
+        elif is_xhs:
+            profile_key = self._extract_xhs_user_id(url)
+        else:
+            profile_key = self._extract_username_from_url(url)
+        self.profile = Profile(username=profile_key)
         self.profile_name_var.set(self.profile.username and f"@{self.profile.username}" or "Profile")
         self.profile_extra_var.set("Loading profile metadata...")
         self.profile_avatar_label.configure(image="", text="")
@@ -1446,33 +1621,51 @@ class TikTokDownloaderApp:
         self.status_var.set(
             f"Fetching first {self._page_size} Douyin profile videos..."
             if is_douyin
-            else f"Fetching first {self._page_size} profile videos..."
+            else (f"Fetching first {self._page_size} Rednote profile notes..." if is_xhs else f"Fetching first {self._page_size} profile videos...")
         )
         self._do_search_profile(url, self._next_start)
 
     def on_fetch_multi_links(self) -> None:
         urls = self._parse_multi_links()
         if not urls:
-            platform_name = "Douyin" if self.platform_var.get().strip().lower() == "douyin" else "TikTok"
+            platform = self.platform_var.get().strip().lower()
+            platform_name = "Douyin" if platform == "douyin" else ("Rednote" if platform == "xhs" else "TikTok")
             messagebox.showwarning("Missing URLs", f"Please enter at least one {platform_name} video URL.")
             return
 
-        is_douyin_mode = self.platform_var.get().strip().lower() == "douyin"
+        platform = self.platform_var.get().strip().lower()
+        is_douyin_mode = platform == "douyin"
+        is_xhs_mode = platform == "xhs"
         wrong_urls = [
             url for url in urls
             if ("douyin.com" in url.lower() or "iesdouyin.com" in url.lower() or "v.douyin.com" in url.lower()) != is_douyin_mode
         ]
-        if wrong_urls:
-            expected = "Douyin" if is_douyin_mode else "TikTok"
-            messagebox.showwarning(
-                "Wrong Platform",
-                f"{expected} mode is active.\n\nPlease paste only {expected} video links in this mode.",
-            )
-            return
+        if is_xhs_mode:
+            wrong_urls = [url for url in urls if not self._is_xhs_url(url)]
+            if wrong_urls:
+                messagebox.showwarning(
+                    "Wrong Platform",
+                    "Rednote mode is active.\n\nPlease paste only Rednote note links in this mode.",
+                )
+                return
+        else:
+            if wrong_urls:
+                expected = "Douyin" if is_douyin_mode else "TikTok"
+                messagebox.showwarning(
+                    "Wrong Platform",
+                    f"{expected} mode is active.\n\nPlease paste only {expected} video links in this mode.",
+                )
+                return
         if is_douyin_mode and not self.tiktok_service.has_douyin_login_session():
             messagebox.showwarning(
                 "Douyin Login Required",
                 "Please open Settings and click 'Login to Douyin' before fetching Douyin videos.",
+            )
+            return
+        if is_xhs_mode and not self.tiktok_service.has_xhs_login_session(strict=True):
+            messagebox.showwarning(
+                "Rednote Login Required",
+                "Please open Settings and login to Rednote before fetching Rednote notes.",
             )
             return
 
@@ -1484,7 +1677,7 @@ class TikTokDownloaderApp:
         self.status_var.set(
             "Fetching metadata from Douyin links..."
             if is_douyin_mode
-            else "Fetching metadata from TikTok links..."
+            else ("Fetching metadata from Rednote links..." if is_xhs_mode else "Fetching metadata from TikTok links...")
         )
         self._do_search_multi(urls)
 
@@ -1503,7 +1696,7 @@ class TikTokDownloaderApp:
         self._search_id = ""
         self.search_grid.show_skeleton(8)
         self._set_loading(True)
-        platform_label = "Douyin" if platform == "douyin" else "TikTok"
+        platform_label = "Douyin" if platform == "douyin" else ("Rednote" if platform == "xhs" else "TikTok")
         self.status_var.set(f"Searching {platform_label} for '{keyword}'...")
         self._do_search_keyword(keyword, platform, reset=True)
 
@@ -1514,8 +1707,8 @@ class TikTokDownloaderApp:
         if not keyword:
             return
         platform = self.platform_var.get().strip().lower() or "tiktok"
-        if platform != "douyin":
-            messagebox.showinfo("Unavailable", "Load more is currently supported only for Douyin search.")
+        if platform not in {"douyin", "xhs"}:
+            messagebox.showinfo("Unavailable", "Load more is currently supported only for Douyin and Rednote search.")
             return
         self.search_grid.show_tail_skeleton(4)
         self._set_loading(True)
@@ -1526,7 +1719,7 @@ class TikTokDownloaderApp:
     def _do_search_keyword(self, keyword: str, platform: str, reset: bool) -> None:
         try:
             options = self._build_search_options()
-            if platform == "douyin" and not reset and self._search_id:
+            if platform in {"douyin", "xhs"} and not reset and self._search_id:
                 options["search_id"] = self._search_id
             videos, has_more, next_offset, next_search_id = self.tiktok_service.search_by_keyword(
                 keyword,
@@ -1576,7 +1769,7 @@ class TikTokDownloaderApp:
         self.search_grid_container.refresh_viewport()
         self._search_has_more = bool(has_more)
         self._search_offset = int(next_offset or 0)
-        if self.platform_var.get().strip().lower() == "douyin" and next_search_id:
+        if self.platform_var.get().strip().lower() in {"douyin", "xhs"} and next_search_id:
             self._search_id = next_search_id
         self._refresh_search_load_more_button()
         self.status_var.set(
@@ -1606,7 +1799,7 @@ class TikTokDownloaderApp:
         duration_map = {
             "All": "",
             "< 1 min": "0-1",
-            "1–5 min": "1-5",
+            "1-5 min": "1-5",
         }
         scope_map = {
             "All": "",
@@ -1629,30 +1822,30 @@ class TikTokDownloaderApp:
     def _normalize_search_label(self, value: str, kind: str) -> str:
         mappings = {
             "mode": {
-                "标准": "Standard",
-                "精选": "Jingxuan",
+                "??": "Standard",
+                "??": "Jingxuan",
             },
             "sort": {
-                "综合排序": "Comprehensive",
-                "最新发布": "Newest",
-                "最多点赞": "Most Liked",
+                "????": "Comprehensive",
+                "????": "Newest",
+                "????": "Most Liked",
             },
             "time": {
-                "不限": "All",
-                "一天内": "Past 24 hours",
-                "一周内": "Past week",
-                "半年内": "Past 6 months",
+                "??": "All",
+                "???": "Past 24 hours",
+                "???": "Past week",
+                "???": "Past 6 months",
             },
             "duration": {
-                "不限": "All",
-                "< 1分钟": "< 1 min",
-                "1–5分钟": "1–5 min",
+                "??": "All",
+                "< 1??": "< 1 min",
+                "1-5??": "1-5 min",
             },
             "scope": {
-                "不限": "All",
-                "关注的人": "Following",
-                "最近看过": "Recently watched",
-                "还未看过": "Not watched yet",
+                "??": "All",
+                "????": "Following",
+                "????": "Recently watched",
+                "????": "Not watched yet",
             },
         }
         return mappings.get(kind, {}).get(value, value)
@@ -1829,6 +2022,28 @@ class TikTokDownloaderApp:
         username = at.split("/", 1)[0]
         username = username.split("?", 1)[0]
         return username.strip()
+
+    @staticmethod
+    def _is_xhs_url(url: str) -> bool:
+        lowered = (url or "").lower()
+        return "rednote.com/" in lowered or "xiaohongshu.com/" in lowered or "xhslink.com/" in lowered
+
+    @staticmethod
+    def _is_xhs_user_id(value: str) -> bool:
+        text = (value or "").strip().lower()
+        return len(text) == 24 and all(ch in "0123456789abcdef" for ch in text)
+
+    @staticmethod
+    def _extract_xhs_user_id(url: str) -> str:
+        import re
+
+        text = (url or "").strip()
+        if len(text) == 24 and all(ch in "0123456789abcdef" for ch in text.lower()):
+            return text
+        match = re.search(r"/user/profile/([^/?]+)", text)
+        if match:
+            return match.group(1)
+        return text
 
     @staticmethod
     def _safe_folder_name(name: str) -> str:
@@ -2029,25 +2244,25 @@ class TikTokDownloaderApp:
         pause_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=48, height=34)
         pause_slot.grid(row=0, column=1, padx=(0, 8))
         pause_slot.grid_propagate(False)
-        pause_btn = ttk.Button(pause_slot, text="⏸", width=4, style="Secondary.TButton", command=lambda: self._pause_video_playback(popup, watch_status_var))
+        pause_btn = ttk.Button(pause_slot, text="?", width=4, style="Secondary.TButton", command=lambda: self._pause_video_playback(popup, watch_status_var))
         pause_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         resume_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=48, height=34)
         resume_slot.grid(row=0, column=2, padx=(0, 8))
         resume_slot.grid_propagate(False)
-        resume_btn = ttk.Button(resume_slot, text="⏯", width=4, style="Secondary.TButton", command=lambda: self._resume_video_playback(popup, watch_status_var))
+        resume_btn = ttk.Button(resume_slot, text="?", width=4, style="Secondary.TButton", command=lambda: self._resume_video_playback(popup, watch_status_var))
         resume_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         replay_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=48, height=34)
         replay_slot.grid(row=0, column=3, padx=(0, 8))
         replay_slot.grid_propagate(False)
-        replay_btn = ttk.Button(replay_slot, text="🔁", width=4, style="Secondary.TButton", command=lambda: self._replay_video_playback(popup, video, watch_status_var))
+        replay_btn = ttk.Button(replay_slot, text="??", width=4, style="Secondary.TButton", command=lambda: self._replay_video_playback(popup, video, watch_status_var))
         replay_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         open_link_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=112, height=34)
         open_link_slot.grid(row=0, column=4)
         open_link_slot.grid_propagate(False)
-        open_link_btn = ttk.Button(open_link_slot, text="🔗", style="Secondary.TButton", command=lambda: self._open_video_link(video))
+        open_link_btn = ttk.Button(open_link_slot, text="??", style="Secondary.TButton", command=lambda: self._open_video_link(video))
         open_link_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         popup._watch_btn = watch_btn  # type: ignore[attr-defined]
@@ -2566,6 +2781,7 @@ class TikTokDownloaderApp:
             if 0.3 <= trend_threshold <= 1.0:
                 self.trend_threshold_var.set(f"{trend_threshold:.2f}")
             self._update_douyin_login_status()
+            self._update_rednote_login_status()
             has_legacy_session = any(
                 key in data
                 for key in ("profile_url", "profile", "profile_videos", "multi_links", "multi_videos", "active_tab")
@@ -2589,6 +2805,7 @@ class TikTokDownloaderApp:
                 self.status_var.set("Restored the last session from local cache.")
         except Exception:
             self._update_douyin_login_status()
+            self._update_rednote_login_status()
             fallback_platform = self.platform_var.get().strip().lower() or "tiktok"
             self._set_platform(fallback_platform, save=False, sync_current=False)
             self._show_profile_welcome_state()
@@ -2970,3 +3187,13 @@ class TikTokDownloaderApp:
             os.startfile(str(p))  # type: ignore[attr-defined]
         except Exception:
             messagebox.showinfo("Open File", str(p))
+
+
+
+
+
+
+
+
+
+

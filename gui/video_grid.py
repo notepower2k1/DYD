@@ -76,7 +76,8 @@ class _VideoTableRow(ttk.Frame):
         self._preview_frame = preview_frame
         self._preview_holder = preview_holder
 
-        metric_value = video.like_count if (video.platform or "").lower() == "douyin" else video.view_count
+        platform = (video.platform or "").lower()
+        metric_value = video.like_count if platform in {"douyin", "xhs"} else video.view_count
         ttk.Label(
             self,
             text=self._format_metric(metric_value),

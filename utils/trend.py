@@ -55,7 +55,8 @@ def get_video_trend_score(video: Video, now: datetime | None = None) -> float | 
         return None
     current_time = now or datetime.now()
     hours = max((current_time - video.upload_time).total_seconds() / 3600.0, 1.0)
-    if (video.platform or "").lower() == "douyin":
+    platform = (video.platform or "").lower()
+    if platform in {"douyin", "xhs"}:
         interactions = max(video.like_count or 0, 0) + max(video.comment_count or 0, 0) + max(video.share_count or 0, 0)
         if interactions <= 0:
             return None
