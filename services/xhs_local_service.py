@@ -813,11 +813,37 @@ class XhsLocalService:
         page_index = max(1, int(offset or 1))
         page_size = max(1, min(int(count or 20), 30))
         sort_label = str(options.get("sort_label") or "")
-        sort_value = "general"
-        if sort_label == "Newest":
-            sort_value = "time_descending"
-        elif sort_label == "Most Liked":
-            sort_value = "popularity_descending"
+        sort_value = str(options.get("sort") or "").strip()
+        if not sort_value:
+            sort_value = "general"
+            if sort_label == "Newest":
+                sort_value = "time_descending"
+            elif sort_label == "Most Liked":
+                sort_value = "popularity_descending"
+            elif sort_label == "Most Commented":
+                sort_value = "comment_descending"
+            elif sort_label == "Most Collected":
+                sort_value = "collect_descending"
+        note_type = options.get("note_type")
+        if note_type is None:
+            note_label = str(options.get("note_type_label") or "")
+            if note_label == "Video":
+                note_type = 1
+            elif note_label == "Image":
+                note_type = 2
+            else:
+                note_type = 0
+        publish_time = options.get("publish_time")
+        if publish_time is None:
+            time_label = str(options.get("time_label") or "")
+            if time_label == "Past 24 hours":
+                publish_time = 1
+            elif time_label == "Past week":
+                publish_time = 7
+            elif time_label == "Past 6 months":
+                publish_time = 180
+            else:
+                publish_time = 0
         search_id = str(options.get("search_id") or self._get_search_id())
 
         payload = {
@@ -826,7 +852,8 @@ class XhsLocalService:
             "page_size": page_size,
             "search_id": search_id,
             "sort": sort_value,
-            "note_type": 0,
+            "note_type": int(note_type or 0),
+            "publish_time": int(publish_time or 0),
         }
         response = await self._signed_post(page, self._SEARCH_API, payload)
         items = response.get("items") or []

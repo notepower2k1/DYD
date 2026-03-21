@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -409,57 +409,72 @@ class TikTokDownloaderApp:
 
         options_panel = ttk.Frame(self.search_tab, padding=(10, 0, 10, 6), style="Panel.TFrame")
         options_panel.pack(side=tk.TOP, fill=tk.X)
-        ttk.Label(options_panel, text="Search Options (Before Fetch)", style="Muted.TLabel").pack(side=tk.LEFT)
+        self.search_options_label = ttk.Label(options_panel, text="Search Options (Before Fetch)", style="Muted.TLabel")
+        self.search_options_label.pack(side=tk.LEFT)
 
-        self.search_mode_var = tk.StringVar(value="Standard")
+        self.search_options_rednote = ttk.Frame(options_panel, style="Panel.TFrame")
+        self.search_options_douyin = ttk.Frame(options_panel, style="Panel.TFrame")
+
         self.search_sort_var = tk.StringVar(value="Comprehensive")
+        self.search_type_var = tk.StringVar(value="All")
         self.search_time_var = tk.StringVar(value="All")
-        self.search_duration_var = tk.StringVar(value="All")
-        self.search_scope_var = tk.StringVar(value="All")
 
-        ttk.Label(options_panel, text="Mode", style="Muted.TLabel").pack(side=tk.LEFT, padx=(12, 0))
+        ttk.Label(self.search_options_rednote, text="Sort", style="Muted.TLabel").pack(side=tk.LEFT, padx=(12, 0))
         ttk.Combobox(
-            options_panel,
-            textvariable=self.search_mode_var,
+            self.search_options_rednote,
+            textvariable=self.search_sort_var,
+            state="readonly",
+            width=14,
+            values=("Comprehensive", "Newest", "Most Liked", "Most Commented", "Most Collected"),
+        ).pack(side=tk.LEFT, padx=(6, 10))
+
+        ttk.Label(self.search_options_rednote, text="Note Type", style="Muted.TLabel").pack(side=tk.LEFT)
+        ttk.Combobox(
+            self.search_options_rednote,
+            textvariable=self.search_type_var,
+            state="readonly",
+            width=8,
+            values=("All", "Video", "Image"),
+        ).pack(side=tk.LEFT, padx=(6, 10))
+
+        ttk.Label(self.search_options_rednote, text="Publish Time", style="Muted.TLabel").pack(side=tk.LEFT)
+        ttk.Combobox(
+            self.search_options_rednote,
+            textvariable=self.search_time_var,
+            state="readonly",
+            width=12,
+            values=("All", "Past 24 hours", "Past week", "Past 6 months"),
+        ).pack(side=tk.LEFT, padx=(6, 0))
+
+        self.search_douyin_mode_var = tk.StringVar(value="Standard")
+        self.search_douyin_sort_var = tk.StringVar(value="Comprehensive")
+        self.search_douyin_time_var = tk.StringVar(value="All")
+
+        ttk.Label(self.search_options_douyin, text="Mode", style="Muted.TLabel").pack(side=tk.LEFT, padx=(12, 0))
+        ttk.Combobox(
+            self.search_options_douyin,
+            textvariable=self.search_douyin_mode_var,
             state="readonly",
             width=10,
             values=("Standard", "Jingxuan"),
-        ).pack(side=tk.LEFT, padx=(6, 12))
-
-        ttk.Label(options_panel, text="Sort", style="Muted.TLabel").pack(side=tk.LEFT, padx=(12, 0))
-        ttk.Combobox(
-            options_panel,
-            textvariable=self.search_sort_var,
-            state="readonly",
-            width=10,
-            values=("Comprehensive", "Newest", "Most Liked"),
         ).pack(side=tk.LEFT, padx=(6, 10))
 
-        ttk.Label(options_panel, text="Time", style="Muted.TLabel").pack(side=tk.LEFT)
+        ttk.Label(self.search_options_douyin, text="Sort", style="Muted.TLabel").pack(side=tk.LEFT)
         ttk.Combobox(
-            options_panel,
-            textvariable=self.search_time_var,
+            self.search_options_douyin,
+            textvariable=self.search_douyin_sort_var,
             state="readonly",
-            width=10,
-            values=("All", "Past 24 hours", "Past week", "Past 6 months"),
+            width=14,
+            values=("Comprehensive", "Newest", "Most Liked", "Most Commented"),
         ).pack(side=tk.LEFT, padx=(6, 10))
 
-        ttk.Label(options_panel, text="Duration", style="Muted.TLabel").pack(side=tk.LEFT)
+        ttk.Label(self.search_options_douyin, text="Publish Time", style="Muted.TLabel").pack(side=tk.LEFT)
         ttk.Combobox(
-            options_panel,
-            textvariable=self.search_duration_var,
-            state="readonly",
-            width=10,
-            values=("All", "< 1 min", "1 min - 5 min"),
-        ).pack(side=tk.LEFT, padx=(6, 10))
-
-        ttk.Label(options_panel, text="Scope", style="Muted.TLabel").pack(side=tk.LEFT)
-        ttk.Combobox(
-            options_panel,
-            textvariable=self.search_scope_var,
+            self.search_options_douyin,
+            textvariable=self.search_douyin_time_var,
             state="readonly",
             width=12,
-            values=("All", "Following", "Recently watched", "Not watched yet"),
+            values=("All", "Past 24 hours", "Past week", "Past 6 months"),
         ).pack(side=tk.LEFT, padx=(6, 0))
 
         ttk.Label(
@@ -967,12 +982,18 @@ class TikTokDownloaderApp:
         search_options = state.get("search_options") or {}
         if isinstance(search_options, dict):
             try:
-                if hasattr(self, "search_mode_var"):
-                    self.search_mode_var.set(self._normalize_search_label(str(search_options.get("mode") or "Standard"), "mode"))
-                self.search_sort_var.set(self._normalize_search_label(str(search_options.get("sort_label") or "Comprehensive"), "sort"))
-                self.search_time_var.set(self._normalize_search_label(str(search_options.get("time_label") or "All"), "time"))
-                self.search_duration_var.set(self._normalize_search_label(str(search_options.get("duration_label") or "All"), "duration"))
-                self.search_scope_var.set(self._normalize_search_label(str(search_options.get("scope_label") or "All"), "scope"))
+                platform = self.platform_var.get().strip().lower()
+                if platform == "xhs":
+                    self.search_sort_var.set(self._normalize_search_label(str(search_options.get("sort_label") or "Comprehensive"), "sort"))
+                    self.search_type_var.set(self._normalize_search_label(str(search_options.get("note_type_label") or "All"), "type"))
+                    self.search_time_var.set(self._normalize_search_label(str(search_options.get("time_label") or "All"), "time"))
+                elif platform == "douyin":
+                    if hasattr(self, "search_douyin_mode_var"):
+                        self.search_douyin_mode_var.set(self._normalize_search_label(str(search_options.get("mode") or "Standard"), "mode"))
+                    if hasattr(self, "search_douyin_sort_var"):
+                        self.search_douyin_sort_var.set(self._normalize_search_label(str(search_options.get("sort_label") or "Comprehensive"), "sort"))
+                    if hasattr(self, "search_douyin_time_var"):
+                        self.search_douyin_time_var.set(self._normalize_search_label(str(search_options.get("time_label") or "All"), "time"))
             except Exception:
                 pass
         self._search_offset = int(state.get("search_offset") or 0)
@@ -1073,6 +1094,7 @@ class TikTokDownloaderApp:
         self._refresh_video_tool_ui("profile", is_douyin or is_xhs)
         self._refresh_video_tool_ui("multi", is_douyin or is_xhs)
         self._refresh_video_tool_ui("search", is_douyin or is_xhs)
+        self._refresh_search_options_ui(is_douyin, is_xhs)
 
         try:
             self.notebook.add(self.profile_tab, text="Profile")
@@ -1129,6 +1151,31 @@ class TikTokDownloaderApp:
                     views_entry.pack(side=tk.LEFT, padx=(6, 10), before=likes_label)
                 else:
                     views_entry.pack(side=tk.LEFT, padx=(6, 10))
+
+    def _refresh_search_options_ui(self, is_douyin: bool, is_xhs: bool) -> None:
+        if hasattr(self, "search_options_label"):
+            if is_douyin or is_xhs:
+                if not self.search_options_label.winfo_manager():
+                    self.search_options_label.pack(side=tk.LEFT)
+            else:
+                if self.search_options_label.winfo_manager():
+                    self.search_options_label.pack_forget()
+
+        if hasattr(self, "search_options_rednote"):
+            if is_xhs:
+                if not self.search_options_rednote.winfo_manager():
+                    self.search_options_rednote.pack(side=tk.LEFT)
+            else:
+                if self.search_options_rednote.winfo_manager():
+                    self.search_options_rednote.pack_forget()
+
+        if hasattr(self, "search_options_douyin"):
+            if is_douyin:
+                if not self.search_options_douyin.winfo_manager():
+                    self.search_options_douyin.pack(side=tk.LEFT)
+            else:
+                if self.search_options_douyin.winfo_manager():
+                    self.search_options_douyin.pack_forget()
 
     def _active_mode(self) -> str:
         current = self.notebook.select()
@@ -1817,50 +1864,62 @@ class TikTokDownloaderApp:
         return f"https://www.tiktok.com/search?q={term}"
 
     def _build_search_options(self) -> dict[str, Any]:
-        sort_map = {
-            "Comprehensive": 0,
-            "Newest": 2,
-            "Most Liked": 1,
-        }
+        platform = self.platform_var.get().strip().lower()
         time_map = {
             "All": 0,
             "Past 24 hours": 1,
             "Past week": 7,
             "Past 6 months": 180,
         }
-        duration_map = {
-            "All": "",
-            "< 1 min": "0-1",
-            "1-5 min": "1-5",
-        }
-        scope_map = {
-            "All": "",
-            "Following": "follow",
-            "Recently watched": "history",
-            "Not watched yet": "unwatch",
-        }
-        return {
-            "mode": self.search_mode_var.get().strip(),
-            "sort_label": self.search_sort_var.get().strip(),
-            "time_label": self.search_time_var.get().strip(),
-            "duration_label": self.search_duration_var.get().strip(),
-            "scope_label": self.search_scope_var.get().strip(),
-            "sort_type": sort_map.get(self.search_sort_var.get().strip(), 0),
-            "publish_time": time_map.get(self.search_time_var.get().strip(), 0),
-            "duration": duration_map.get(self.search_duration_var.get().strip(), ""),
-            "scope": scope_map.get(self.search_scope_var.get().strip(), ""),
-        }
+        if platform == "xhs":
+            sort_value_map = {
+                "Comprehensive": "general",
+                "Newest": "time_descending",
+                "Most Liked": "popularity_descending",
+                "Most Commented": "comment_descending",
+                "Most Collected": "collect_descending",
+            }
+            note_type_map = {
+                "All": 0,
+                "Video": 1,
+                "Image": 2,
+            }
+            return {
+                "sort_label": self.search_sort_var.get().strip(),
+                "note_type_label": self.search_type_var.get().strip(),
+                "time_label": self.search_time_var.get().strip(),
+                "sort": sort_value_map.get(self.search_sort_var.get().strip(), "general"),
+                "note_type": note_type_map.get(self.search_type_var.get().strip(), 0),
+                "publish_time": time_map.get(self.search_time_var.get().strip(), 0),
+            }
+        if platform == "douyin":
+            sort_type_map = {
+                "Comprehensive": 0,
+                "Newest": 2,
+                "Most Liked": 1,
+                "Most Commented": 3,
+            }
+            return {
+                "mode": self.search_douyin_mode_var.get().strip(),
+                "sort_label": self.search_douyin_sort_var.get().strip(),
+                "time_label": self.search_douyin_time_var.get().strip(),
+                "sort_type": sort_type_map.get(self.search_douyin_sort_var.get().strip(), 0),
+                "publish_time": time_map.get(self.search_douyin_time_var.get().strip(), 0),
+            }
+        return {}
 
     def _normalize_search_label(self, value: str, kind: str) -> str:
         mappings = {
             "mode": {
-                "默认": "Standard",
+                "标准": "Standard",
                 "精选": "Jingxuan",
             },
             "sort": {
                 "综合": "Comprehensive",
                 "最新": "Newest",
                 "最多赞": "Most Liked",
+                "最多评论": "Most Commented",
+                "最多收藏": "Most Collected",
             },
             "time": {
                 "全部": "All",
@@ -1868,16 +1927,10 @@ class TikTokDownloaderApp:
                 "一周内": "Past week",
                 "半年内": "Past 6 months",
             },
-            "duration": {
+            "type": {
                 "不限": "All",
-                "< 1分钟": "< 1 min",
-                "1-5分钟": "1-5 min",
-            },
-            "scope": {
-                "全部": "All",
-                "关注": "Following",
-                "最近看过": "Recently watched",
-                "未看过": "Not watched yet",
+                "视频": "Video",
+                "图文": "Image",
             },
         }
         return mappings.get(kind, {}).get(value, value)
@@ -2362,11 +2415,14 @@ class TikTokDownloaderApp:
         button: ttk.Button | None = None,
     ) -> None:
         self._debug_xhs_event("prepare.start", video)
+        if video.image_urls and not video.media_url:
+            if (video.platform or "").lower() == "douyin":
+                self._prepare_douyin_image_preview(video, popup, status_var, button)
+            else:
+                status_var.set("This post is an image gallery, so it can be downloaded but not played as a video.")
+            return
         if vlc is None:
             status_var.set("python-vlc is not available. Install dependency and ensure VLC/libvlc is installed.")
-            return
-        if video.image_urls and not video.media_url:
-            status_var.set("This Douyin post is an image gallery, so it can be downloaded but not played as a video.")
             return
 
         popup._playback_state = "preparing"  # type: ignore[attr-defined]
@@ -2452,6 +2508,84 @@ class TikTokDownloaderApp:
         import threading
 
         threading.Thread(target=_resolve, daemon=True).start()
+
+    def _prepare_douyin_image_preview(
+        self,
+        video: Video,
+        popup: tk.Toplevel,
+        status_var: tk.StringVar,
+        button: ttk.Button | None = None,
+    ) -> None:
+        popup._playback_state = "preparing"  # type: ignore[attr-defined]
+        self._update_popup_controls(popup)
+        if button is not None:
+            button.configure(state="disabled")
+        status_var.set("Preparing image preview from URL...")
+
+        def _load() -> None:
+            error_message = ""
+            image_url = ""
+            if video.image_urls:
+                image_url = str(video.image_urls[0] or "")
+            if not image_url:
+                error_message = "No image URL found for this post."
+
+            photo = None
+            if image_url:
+                try:
+                    import io
+                    import requests
+                    from PIL import Image, ImageDraw, ImageTk
+
+                    resp = requests.get(image_url, timeout=10)
+                    resp.raise_for_status()
+                    img = Image.open(io.BytesIO(resp.content)).convert("RGB")
+                    target_ratio = 9 / 16
+                    w, h = img.size
+                    current_ratio = w / h if h else target_ratio
+                    if current_ratio > target_ratio:
+                        new_w = int(h * target_ratio)
+                        left = (w - new_w) // 2
+                        img = img.crop((left, 0, left + new_w, h))
+                    elif current_ratio < target_ratio:
+                        new_h = int(w / target_ratio)
+                        top = (h - new_h) // 2
+                        img = img.crop((0, top, w, top + new_h))
+
+                    img = img.resize((320, 560))
+                    rgba = img.convert("RGBA")
+                    mask = Image.new("L", rgba.size, 0)
+                    draw = ImageDraw.Draw(mask)
+                    draw.rounded_rectangle((0, 0, rgba.size[0] - 1, rgba.size[1] - 1), radius=18, fill=255)
+                    rgba.putalpha(mask)
+                    photo = ImageTk.PhotoImage(rgba)
+                except Exception as exc:  # noqa: BLE001
+                    error_message = str(exc or "Failed to load image preview.")
+
+            def _apply() -> None:
+                if button is not None:
+                    button.configure(state="normal")
+                if not popup.winfo_exists():
+                    return
+                if not photo:
+                    popup._playback_state = "idle"  # type: ignore[attr-defined]
+                    self._update_popup_controls(popup)
+                    status_var.set(error_message or "Could not prepare image preview.")
+                    return
+                popup._detail_preview_image = photo  # type: ignore[attr-defined]
+                popup._current_media_source = image_url  # type: ignore[attr-defined]
+                popup._prepared_video_id = video.id  # type: ignore[attr-defined]
+                popup._playback_state = "idle"  # type: ignore[attr-defined]
+                self._update_popup_controls(popup)
+                self._show_preview_surface(popup)
+                popup._preview_label.configure(image=photo)  # type: ignore[attr-defined]
+                status_var.set("Image preview ready (streamed from URL).")
+
+            self.root.after(0, _apply)
+
+        import threading
+
+        threading.Thread(target=_load, daemon=True).start()
 
     def _debug_xhs_event(self, message: str, video: Video, detail: str = "") -> None:
         try:
@@ -3379,6 +3513,7 @@ class TikTokDownloaderApp:
             os.startfile(str(p))  # type: ignore[attr-defined]
         except Exception:
             messagebox.showinfo("Open File", str(p))
+
 
 
 
