@@ -2023,6 +2023,11 @@ class XhsLocalService:
     def _extract_video_url(self, note: dict[str, Any]) -> str | None:
         video = note.get("video") or {}
         if isinstance(video, dict):
+            consumer = video.get("consumer") or {}
+            if isinstance(consumer, dict):
+                origin_key = consumer.get("originVideoKey") or consumer.get("origin_video_key") or consumer.get("origin_videoKey")
+                if isinstance(origin_key, str) and origin_key.strip():
+                    return f"https://sns-video-bd.xhscdn.com/{origin_key.strip()}"
             media = video.get("media") or {}
             if isinstance(media, dict):
                 stream = media.get("stream") or {}
@@ -2059,10 +2064,29 @@ class XhsLocalService:
     def _to_int(value: Any) -> int | None:
         if value in (None, ""):
             return None
-        try:
-            return int(float(value))
-        except Exception:
+        if isinstance(value, (int, float)):
+            return int(value)
+        text = str(value).strip()
+        if not text:
             return None
+        text = text.replace(",", "").replace("+", "")
+        try:
+            return int(float(text))
+        except Exception:
+            pass
+        # Handle common Chinese units like "万" (10k) and "亿" (100M).
+        match = re.match(r"^\s*([0-9.]+)\s*([万亿])\s*$", text)
+        if match:
+            try:
+                number = float(match.group(1))
+            except Exception:
+                return None
+            unit = match.group(2)
+            if unit == "万":
+                return int(number * 10_000)
+            if unit == "亿":
+                return int(number * 100_000_000)
+        return None
 
     @staticmethod
     def _extract_digits(text: str) -> str:
