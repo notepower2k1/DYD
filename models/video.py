@@ -28,6 +28,7 @@ class Video:
     music_title: Optional[str] = None
     is_downloaded: bool = False
     downloaded_path: Optional[str] = None
+    is_bookmarked: bool = False
 
     @classmethod
     def from_ydl(cls, info: Dict[str, Any]) -> "Video":
@@ -60,6 +61,7 @@ class Video:
             upload_time=upload_time,
             tags=tuple(info.get("tags") or ()),
             music_title=info.get("track") or info.get("album") or None,
+            is_bookmarked=False,
         )
 
     @classmethod
@@ -102,6 +104,7 @@ class Video:
             music_title=data.get("music_title") or None,
             is_downloaded=bool(data.get("is_downloaded")),
             downloaded_path=data.get("downloaded_path") or None,
+            is_bookmarked=bool(data.get("is_bookmarked")),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -127,6 +130,7 @@ class Video:
             "music_title": self.music_title,
             "is_downloaded": self.is_downloaded,
             "downloaded_path": self.downloaded_path,
+            "is_bookmarked": self.is_bookmarked,
         }
 
     @staticmethod

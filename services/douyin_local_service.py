@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Any, Callable
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 
 import httpx
 from playwright.async_api import BrowserContext, Page, async_playwright
@@ -22,6 +22,7 @@ class DouyinLocalService:
     _DETAIL_API = "https://www.douyin.com/aweme/v1/web/aweme/detail/"
     _USER_PROFILE_API = "/aweme/v1/web/user/profile/other/"
     _USER_POST_API = "/aweme/v1/web/aweme/post/"
+    _SEARCH_API = "/aweme/v1/web/general/search/single/"
 
     def __init__(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
@@ -67,6 +68,13 @@ class DouyinLocalService:
             result = self._run_coro(self._fetch_profile_videos_paged_async(url, start, count))
         if not isinstance(result, tuple) or len(result) != 3:
             raise RuntimeError("Douyin profile fetch did not return a valid result.")
+        return result
+
+    def search_by_keyword(self, keyword: str, count: int = 20) -> list[Video]:
+        with self._operation_lock:
+            result = self._run_coro(self._search_by_keyword_async(keyword, count))
+        if not isinstance(result, list):
+            raise RuntimeError("Douyin search did not return a valid result list.")
         return result
 
     def download_video(
@@ -221,6 +229,63 @@ class DouyinLocalService:
             has_more=has_more,
         )
         return collected, has_more, profile
+
+    async def _search_by_keyword_async(self, keyword: str, count: int) -> list[Video]:
+        self._ensure_assets()
+        context, page = await self._ensure_browser_session(keep_visible=False)
+        await self._move_window_offscreen(page)
+        await self._ensure_home_ready(page)
+
+        if not await self._is_logged_in(context, page):
+            raise RuntimeError("Douyin login is required. Please open Settings and click 'Login to Douyin' first.")
+
+        term = (keyword or "").strip()
+        if not term:
+            return []
+
+        query_params = {
+            "search_channel": "general",
+            "enable_history": "1",
+            "keyword": term,
+            "search_source": "tab_search",
+            "query_correct_type": "1",
+            "is_filter_search": "0",
+            "from_group_id": "7378810571505847586",
+            "offset": 0,
+            "count": max(1, min(int(count), 50)),
+            "need_filter_settings": "1",
+            "list_type": "multi",
+            "search_id": "",
+        }
+        safe_term = quote(term)
+        referer_url = f"https://www.douyin.com/search/{safe_term}"
+        payload = await self._request_douyin_get(
+            context,
+            page,
+            self._SEARCH_API,
+            query_params,
+            "search",
+            referer_override=referer_url,
+            origin_override=self._DOUYIN_HOME,
+            sign_required=False,
+        )
+
+        videos: list[Video] = []
+        data_list = payload.get("data") or []
+        if isinstance(data_list, list):
+            for item in data_list:
+                if not isinstance(item, dict):
+                    continue
+                aweme = item.get("aweme_info") or item.get("aweme")
+                if isinstance(aweme, dict):
+                    videos.append(self._video_from_aweme_detail(aweme, aweme.get("share_url") or ""))
+
+        self._debug(
+            "search.keyword",
+            keyword=term,
+            returned=len(videos),
+        )
+        return videos
 
     async def _download_video_async(
         self,
@@ -552,6 +617,7 @@ class DouyinLocalService:
         *,
         referer_override: str | None = None,
         origin_override: str | None = None,
+        sign_required: bool = True,
     ) -> dict[str, Any]:
         cookie_dict = self._cookie_dict(await context.cookies())
         cookie_str = ";".join(f"{key}={value}" for key, value in cookie_dict.items())
@@ -588,8 +654,9 @@ class DouyinLocalService:
                 "msToken": str(local_storage.get("xmst") or cookie_dict.get("msToken") or ""),
             }
         )
-        encoded = urlencode(request_params)
-        request_params["a_bogus"] = await self._sign_detail(page, encoded, user_agent)
+        if sign_required:
+            encoded = urlencode(request_params)
+            request_params["a_bogus"] = await self._sign_detail(page, encoded, user_agent)
 
         headers = {
             "User-Agent": user_agent,

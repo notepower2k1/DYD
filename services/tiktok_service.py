@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
+from urllib.parse import quote
 
 import json
 import re
@@ -108,6 +109,15 @@ class TikTokService:
             raise RuntimeError(f"Failed to fetch any videos. Last error: {last_exception}")
             
         return videos
+
+    def search_by_keyword(self, keyword: str, platform: str = "tiktok", count: int = 20) -> List[Video]:
+        term = (keyword or "").strip()
+        if not term:
+            return []
+        if str(platform).lower() == "douyin":
+            return self._douyin_local.search_by_keyword(term, count=count)
+        url = f"https://www.tiktok.com/search?q={quote(term)}"
+        return self.fetch_videos([url])
 
     def refresh_video(self, video: Video) -> Video:
         url = (video.url or "").strip()

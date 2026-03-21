@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, List
+from urllib.parse import quote
 
 from models.profile import Profile
 from models.video import Video
@@ -50,6 +51,10 @@ class TikTokDownloaderApp:
         self.multi_videos: List[Video] = []
         self._profile_all_videos: List[Video] = []
         self._multi_all_videos: List[Video] = []
+        self.bookmark_videos: List[Video] = []
+        self._bookmark_all_videos: List[Video] = []
+        self.search_videos: List[Video] = []
+        self._search_all_videos: List[Video] = []
 
         self.profile: Profile | None = None
         self._profile_url: str | None = None
@@ -91,6 +96,9 @@ class TikTokDownloaderApp:
                 "profile_videos": [],
                 "multi_links": [],
                 "multi_videos": [],
+                "bookmarked_videos": [],
+                "search_keyword": "",
+                "search_videos": [],
                 "active_tab": "profile",
                 "profile_has_more": False,
                 "next_start": 1,
@@ -160,14 +168,20 @@ class TikTokDownloaderApp:
 
         self.profile_tab = ttk.Frame(self.notebook, style="Panel.TFrame")
         self.multi_tab = ttk.Frame(self.notebook, style="Panel.TFrame")
+        self.search_tab = ttk.Frame(self.notebook, style="Panel.TFrame")
+        self.bookmark_tab = ttk.Frame(self.notebook, style="Panel.TFrame")
         self.downloads_tab = ttk.Frame(self.notebook, style="Panel.TFrame")
 
         self.notebook.add(self.profile_tab, text="Profile")
         self.notebook.add(self.multi_tab, text="Multi-link")
+        self.notebook.add(self.search_tab, text="Search")
+        self.notebook.add(self.bookmark_tab, text="Bookmarks")
         self.notebook.add(self.downloads_tab, text="Downloads")
 
         self._build_profile_tab()
         self._build_multi_tab()
+        self._build_search_tab()
+        self._build_bookmark_tab()
         self._build_downloads_tab()
 
         footer = ttk.Frame(self.main_frame, padding=10, style="Panel.TFrame")
@@ -273,6 +287,7 @@ class TikTokDownloaderApp:
             on_selection_change=self._on_selection_change,
             on_open_video=self._open_video_details,
             on_quick_download=self._queue_single_video,
+            on_bookmark=self._toggle_bookmark,
             on_load_more=None,
             columns=5,
             trend_threshold=self._get_trend_threshold(),
@@ -335,6 +350,7 @@ class TikTokDownloaderApp:
             on_selection_change=self._on_selection_change,
             on_open_video=self._open_video_details,
             on_quick_download=self._queue_single_video,
+            on_bookmark=self._toggle_bookmark,
             on_load_more=None,
             columns=5,
             trend_threshold=self._get_trend_threshold(),
@@ -342,6 +358,87 @@ class TikTokDownloaderApp:
         )
         self.multi_grid.pack(fill=tk.BOTH, expand=True)
         self.multi_grid_container.set_on_viewport_changed(self.multi_grid.update_visible_range)
+
+    def _build_search_tab(self) -> None:
+        controls_panel = ttk.Frame(self.search_tab, padding=10, style="Panel.TFrame")
+        controls_panel.pack(side=tk.TOP, fill=tk.X)
+
+        self.search_keyword_var = tk.StringVar(value="")
+        self.search_keyword_input = LabeledEntry(
+            controls_panel,
+            text="Keyword",
+        )
+        self.search_keyword_input.entry.configure(textvariable=self.search_keyword_var)
+        self.search_keyword_input.entry_var = self.search_keyword_var
+        self.search_keyword_input.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+
+        self.search_btn = ttk.Button(
+            controls_panel,
+            text="Search",
+            command=self.on_search_videos,
+            style="Secondary.TButton",
+        )
+        self.search_btn.pack(side=tk.LEFT)
+
+        self._build_video_tools(
+            self.search_tab,
+            "search",
+            self._apply_search_filters,
+            self._reset_search_filters,
+            lambda: self.search_grid.select_all(),
+            lambda: self.search_grid.clear_selection(),
+        )
+
+        self.search_grid_container = ScrollableFrame(self.search_tab, style="Panel.TFrame")
+        self.search_grid_container.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(10, 0))
+
+        self.search_grid = VideoGrid(
+            self.search_grid_container.container,
+            on_selection_change=self._on_selection_change,
+            on_open_video=self._open_video_details,
+            on_quick_download=self._queue_single_video,
+            on_bookmark=self._toggle_bookmark,
+            on_load_more=None,
+            columns=5,
+            trend_threshold=self._get_trend_threshold(),
+            style="Panel.TFrame",
+        )
+        self.search_grid.pack(fill=tk.BOTH, expand=True)
+        self.search_grid_container.set_on_viewport_changed(self.search_grid.update_visible_range)
+
+    def _build_bookmark_tab(self) -> None:
+        header = ttk.Frame(self.bookmark_tab, padding=10, style="Panel.TFrame")
+        header.pack(side=tk.TOP, fill=tk.X)
+
+        ttk.Label(
+            header,
+            text="Bookmarked Videos",
+            background="#ffffff",
+            foreground="#1d2a44",
+            font=("Segoe UI", 11, "bold"),
+        ).pack(side=tk.LEFT)
+        ttk.Label(
+            header,
+            text="Mark videos with ★ to keep them for later.",
+            style="Muted.TLabel",
+        ).pack(side=tk.LEFT, padx=(12, 0))
+
+        self.bookmark_grid_container = ScrollableFrame(self.bookmark_tab, style="Panel.TFrame")
+        self.bookmark_grid_container.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(10, 0))
+
+        self.bookmark_grid = VideoGrid(
+            self.bookmark_grid_container.container,
+            on_selection_change=self._on_selection_change,
+            on_open_video=self._open_video_details,
+            on_quick_download=self._queue_single_video,
+            on_bookmark=self._toggle_bookmark,
+            on_load_more=None,
+            columns=5,
+            trend_threshold=self._get_trend_threshold(),
+            style="Panel.TFrame",
+        )
+        self.bookmark_grid.pack(fill=tk.BOTH, expand=True)
+        self.bookmark_grid_container.set_on_viewport_changed(self.bookmark_grid.update_visible_range)
 
     def _build_downloads_tab(self) -> None:
         top = ttk.Frame(self.downloads_tab, padding=10, style="Panel.TFrame")
@@ -678,6 +775,9 @@ class TikTokDownloaderApp:
         state["profile_videos"] = [video.to_dict() for video in self._profile_all_videos]
         state["multi_links"] = self._parse_multi_links()
         state["multi_videos"] = [video.to_dict() for video in self._multi_all_videos]
+        state["bookmarked_videos"] = [video.to_dict() for video in self._bookmark_all_videos]
+        state["search_keyword"] = self.search_keyword_var.get().strip() if hasattr(self, "search_keyword_var") else ""
+        state["search_videos"] = [video.to_dict() for video in self._search_all_videos]
         state["active_tab"] = self._active_mode()
         state["profile_has_more"] = bool(self._profile_has_more)
         state["next_start"] = int(self._next_start)
@@ -708,11 +808,21 @@ class TikTokDownloaderApp:
         self._next_start = int(state.get("next_start") or 1)
         profile_rows = state.get("profile_videos") or []
         multi_rows = state.get("multi_videos") or []
+        bookmark_rows = state.get("bookmarked_videos") or []
+        search_rows = state.get("search_videos") or []
+        self._bookmark_all_videos = self._dedupe_videos([Video.from_dict(row) for row in bookmark_rows if isinstance(row, dict)])
+        for video in self._bookmark_all_videos:
+            video.is_bookmarked = True
         self._profile_all_videos = self._dedupe_videos([Video.from_dict(row) for row in profile_rows if isinstance(row, dict)])
         self._multi_all_videos = self._dedupe_videos([Video.from_dict(row) for row in multi_rows if isinstance(row, dict)])
+        self._search_all_videos = self._dedupe_videos([Video.from_dict(row) for row in search_rows if isinstance(row, dict)])
         self.profile_videos = self._apply_video_controls("profile", self._profile_all_videos)
         self.multi_videos = self._apply_video_controls("multi", self._multi_all_videos)
+        self.bookmark_videos = list(self._bookmark_all_videos)
+        self.search_videos = self._apply_video_controls("search", self._search_all_videos)
         self.profile_url_input.set(self._profile_url)
+        if hasattr(self, "search_keyword_var"):
+            self.search_keyword_var.set(str(state.get("search_keyword") or ""))
         self.multi_links_text.delete("1.0", tk.END)
         multi_links = state.get("multi_links") or []
         if isinstance(multi_links, list) and multi_links:
@@ -721,12 +831,20 @@ class TikTokDownloaderApp:
         self._refresh_downloaded_tab()
         self.history_service.apply_status(self._profile_all_videos)
         self.history_service.apply_status(self._multi_all_videos)
+        self.history_service.apply_status(self._bookmark_all_videos)
+        self.history_service.apply_status(self._search_all_videos)
         self.profile_grid.set_videos(self.profile_videos, has_more=self._profile_has_more)
         self.multi_grid.set_videos(self.multi_videos, has_more=False)
+        self.bookmark_grid.set_videos(self.bookmark_videos, has_more=False)
+        self.search_grid.set_videos(self.search_videos, has_more=False)
         self.profile_grid_container.scroll_to_top()
         self.multi_grid_container.scroll_to_top()
+        self.bookmark_grid_container.scroll_to_top()
+        self.search_grid_container.scroll_to_top()
         self.profile_grid_container.refresh_viewport()
         self.multi_grid_container.refresh_viewport()
+        self.bookmark_grid_container.refresh_viewport()
+        self.search_grid_container.refresh_viewport()
         if self.profile:
             self._update_profile_header()
         elif not self.profile_videos:
@@ -739,6 +857,10 @@ class TikTokDownloaderApp:
         active_tab = str(state.get("active_tab") or "profile")
         if active_tab == "multi":
             self.notebook.select(self.multi_tab)
+        elif active_tab == "search":
+            self.notebook.select(self.search_tab)
+        elif active_tab == "bookmarks":
+            self.notebook.select(self.bookmark_tab)
         elif active_tab in {"downloads", "downloaded"}:
             self.notebook.select(self.downloads_tab)
         else:
@@ -776,13 +898,14 @@ class TikTokDownloaderApp:
             self._show_profile_welcome_state()
         self._refresh_video_tool_ui("profile", is_douyin)
         self._refresh_video_tool_ui("multi", is_douyin)
+        self._refresh_video_tool_ui("search", is_douyin)
 
         try:
             self.notebook.add(self.profile_tab, text="Profile")
         except Exception:
             pass
         self.notebook.insert(0, self.profile_tab)
-        if not self.profile_videos and not self.multi_videos:
+        if not self.profile_videos and not self.multi_videos and not self.bookmark_videos and not self.search_videos:
             self.status_var.set(
                 "Douyin mode is active. Choose Profile or Multi-link."
                 if is_douyin
@@ -839,6 +962,10 @@ class TikTokDownloaderApp:
             return "profile"
         if current == str(self.multi_tab):
             return "multi"
+        if current == str(self.search_tab):
+            return "search"
+        if current == str(self.bookmark_tab):
+            return "bookmarks"
         return "downloads"
 
     def _set_loading(self, loading: bool) -> None:
@@ -846,6 +973,8 @@ class TikTokDownloaderApp:
         self.fetch_profile_btn.configure(state=state)
         self.fetch_links_btn.configure(state=state)
         self.download_btn.configure(state=state)
+        if hasattr(self, "search_btn"):
+            self.search_btn.configure(state=state)
         combo = getattr(self, "batch_size_combo", None)
         if combo is not None:
             try:
@@ -864,6 +993,10 @@ class TikTokDownloaderApp:
             count = len(self.profile_grid.get_selected())
         elif mode == "multi":
             count = len(self.multi_grid.get_selected())
+        elif mode == "search":
+            count = len(self.search_grid.get_selected())
+        elif mode == "bookmarks":
+            count = len(self.bookmark_grid.get_selected())
         else:
             count = 0
         self.selected_var.set(f"Selected {count} video(s).")
@@ -896,6 +1029,7 @@ class TikTokDownloaderApp:
             "bookmark_count",
             "upload_time",
             "music_title",
+            "is_bookmarked",
         ):
             current_value = getattr(base, attr)
             if current_value in (None, "", 0):
@@ -913,15 +1047,44 @@ class TikTokDownloaderApp:
             base.downloaded_path = incoming.downloaded_path
         return base
 
+    def _toggle_bookmark(self, video: Video, bookmarked: bool) -> None:
+        key = self._video_identity(video)
+        if not key:
+            return
+
+        video.is_bookmarked = bookmarked
+        self.history_service.apply_status([video])
+        if bookmarked:
+            existing = {self._video_identity(v) for v in self._bookmark_all_videos}
+            if key not in existing:
+                self._bookmark_all_videos.append(video)
+        else:
+            self._bookmark_all_videos = [v for v in self._bookmark_all_videos if self._video_identity(v) != key]
+
+        for source in (self._profile_all_videos, self._multi_all_videos):
+            for item in source:
+                if self._video_identity(item) == key:
+                    item.is_bookmarked = bookmarked
+
+        self._bookmark_all_videos = self._dedupe_videos(self._bookmark_all_videos)
+        self.bookmark_videos = list(self._bookmark_all_videos)
+        if getattr(self, "bookmark_grid", None) is not None:
+            self.bookmark_grid.set_videos(self.bookmark_videos, has_more=False)
+            self.bookmark_grid_container.refresh_viewport()
+        self._save_session_cache()
+
     def _dedupe_videos(self, videos: List[Video]) -> List[Video]:
         ordered: list[Video] = []
         by_key: dict[str, Video] = {}
+        bookmark_keys = {self._video_identity(v) for v in self._bookmark_all_videos}
         for video in videos:
             if not video:
                 continue
             key = self._video_identity(video)
             if not key:
                 continue
+            if key in bookmark_keys:
+                video.is_bookmarked = True
             if key in by_key:
                 self._merge_video(by_key[key], video)
                 continue
@@ -1119,12 +1282,25 @@ class TikTokDownloaderApp:
         self.multi_grid_container.refresh_viewport()
         self.status_var.set(f"Showing {len(self.multi_videos)} filtered multi-link video(s).")
 
+    def _apply_search_filters(self) -> None:
+        self.search_videos = self._apply_video_controls("search", self._search_all_videos)
+        self.search_grid.set_videos(self.search_videos, has_more=False)
+        self.search_grid_container.refresh_viewport()
+        self.status_var.set(f"Showing {len(self.search_videos)} filtered search video(s).")
+
     def _reset_multi_filters(self) -> None:
         for attr in ("min_views", "min_likes", "min_comments", "min_trend", "max_age_days"):
             getattr(self, f"multi_{attr}_var").set("")
         self.multi_sort_key_var.set("upload_time")
         self.multi_sort_order_var.set("desc")
         self._apply_multi_filters()
+
+    def _reset_search_filters(self) -> None:
+        for attr in ("min_views", "min_likes", "min_comments", "min_trend", "max_age_days"):
+            getattr(self, f"search_{attr}_var").set("")
+        self.search_sort_key_var.set("upload_time")
+        self.search_sort_order_var.set("desc")
+        self._apply_search_filters()
 
     def _center_popup(self, popup: tk.Toplevel, width: int, height: int) -> None:
         self.root.update_idletasks()
@@ -1238,6 +1414,57 @@ class TikTokDownloaderApp:
             else "Fetching metadata from TikTok links..."
         )
         self._do_search_multi(urls)
+
+    def on_search_videos(self) -> None:
+        keyword = (self.search_keyword_var.get() or "").strip()
+        if not keyword:
+            messagebox.showwarning("Missing Keyword", "Please enter a keyword to search.")
+            return
+
+        platform = self.platform_var.get().strip().lower() or "tiktok"
+
+        self.search_videos = []
+        self._search_all_videos = []
+        self.search_grid.show_skeleton(8)
+        self._set_loading(True)
+        platform_label = "Douyin" if platform == "douyin" else "TikTok"
+        self.status_var.set(f"Searching {platform_label} for '{keyword}'...")
+        self._do_search_keyword(keyword, platform)
+
+    @run_in_thread
+    def _do_search_keyword(self, keyword: str, platform: str) -> None:
+        try:
+            videos = self.tiktok_service.search_by_keyword(keyword, platform=platform)
+        except Exception as exc:  # noqa: BLE001
+            self.root.after(0, lambda exc=exc: self._handle_search_error(exc))
+            return
+        self.root.after(0, lambda: self._handle_search_success_search(videos, keyword))
+
+    def _handle_search_success_search(self, videos: List[Video], keyword: str) -> None:
+        self._set_loading(False)
+        videos = self._dedupe_videos(videos)
+        if not videos:
+            self.status_var.set("No videos found.")
+            self.search_grid.set_videos([], has_more=False)
+            self.search_grid_container.scroll_to_top()
+            self._sync_platform_state()
+            self._save_session_cache()
+            return
+
+        self.history_service.apply_status(videos)
+        self._search_all_videos = self._dedupe_videos(list(videos))
+        self.search_videos = self._apply_video_controls("search", self._search_all_videos)
+        self.search_grid.set_videos(self.search_videos, has_more=False)
+        self.search_grid_container.scroll_to_top()
+        self.search_grid_container.refresh_viewport()
+        self.status_var.set(f"Found {len(videos)} video(s) for '{keyword}'.")
+        self._sync_platform_state()
+        self._persist_platform_workspace_cache(self.platform_var.get())
+        self._save_session_cache()
+
+    def _build_search_url(self, keyword: str) -> str:
+        term = quote(keyword.strip())
+        return f"https://www.tiktok.com/search?q={term}"
 
     @run_in_thread
     def _do_search_multi(self, urls: List[str]) -> None:
@@ -2064,6 +2291,9 @@ class TikTokDownloaderApp:
             "profile_videos": state.get("profile_videos") or [],
             "multi_links": state.get("multi_links") or [],
             "multi_videos": state.get("multi_videos") or [],
+            "bookmarked_videos": state.get("bookmarked_videos") or [],
+            "search_keyword": state.get("search_keyword") or "",
+            "search_videos": state.get("search_videos") or [],
             "active_tab": state.get("active_tab") or "profile",
             "profile_has_more": bool(state.get("profile_has_more")),
             "next_start": int(state.get("next_start") or 1),
@@ -2100,6 +2330,9 @@ class TikTokDownloaderApp:
                         self._platform_states[name]["profile_videos"] = session.get("profile_videos") if isinstance(session.get("profile_videos"), list) else []
                         self._platform_states[name]["multi_links"] = session.get("multi_links") if isinstance(session.get("multi_links"), list) else []
                         self._platform_states[name]["multi_videos"] = session.get("multi_videos") if isinstance(session.get("multi_videos"), list) else []
+                        self._platform_states[name]["bookmarked_videos"] = session.get("bookmarked_videos") if isinstance(session.get("bookmarked_videos"), list) else []
+                        self._platform_states[name]["search_keyword"] = str(session.get("search_keyword") or "")
+                        self._platform_states[name]["search_videos"] = session.get("search_videos") if isinstance(session.get("search_videos"), list) else []
                         self._platform_states[name]["active_tab"] = str(session.get("active_tab") or "profile")
                         self._platform_states[name]["profile_has_more"] = bool(session.get("profile_has_more"))
                         self._platform_states[name]["next_start"] = int(session.get("next_start") or 1)
@@ -2112,6 +2345,9 @@ class TikTokDownloaderApp:
                 self._platform_states[name]["profile_videos"] = session.get("profile_videos") if isinstance(session.get("profile_videos"), list) else []
                 self._platform_states[name]["multi_links"] = session.get("multi_links") if isinstance(session.get("multi_links"), list) else []
                 self._platform_states[name]["multi_videos"] = session.get("multi_videos") if isinstance(session.get("multi_videos"), list) else []
+                self._platform_states[name]["bookmarked_videos"] = session.get("bookmarked_videos") if isinstance(session.get("bookmarked_videos"), list) else []
+                self._platform_states[name]["search_keyword"] = str(session.get("search_keyword") or "")
+                self._platform_states[name]["search_videos"] = session.get("search_videos") if isinstance(session.get("search_videos"), list) else []
                 self._platform_states[name]["active_tab"] = str(session.get("active_tab") or "profile")
                 self._platform_states[name]["profile_has_more"] = bool(session.get("profile_has_more"))
                 self._platform_states[name]["next_start"] = int(session.get("next_start") or 1)
@@ -2281,8 +2517,12 @@ class TikTokDownloaderApp:
             selected = self.profile_grid.get_selected()
         elif mode == "multi":
             selected = self.multi_grid.get_selected()
+        elif mode == "search":
+            selected = self.search_grid.get_selected()
+        elif mode == "bookmarks":
+            selected = self.bookmark_grid.get_selected()
         else:
-            messagebox.showinfo("Unavailable", "Please select videos in Profile or Multi-link tab.")
+            messagebox.showinfo("Unavailable", "Please select videos in Profile, Multi-link, Search, or Bookmarks tab.")
             return
 
         if not selected:
