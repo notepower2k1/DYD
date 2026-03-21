@@ -57,6 +57,7 @@ class TikTokDownloaderApp:
         self._search_all_videos: List[Video] = []
         self._search_offset = 0
         self._search_has_more = False
+        self._search_id = ""
 
         self.profile: Profile | None = None
         self._profile_url: str | None = None
@@ -104,6 +105,7 @@ class TikTokDownloaderApp:
                 "search_options": {},
                 "search_offset": 0,
                 "search_has_more": False,
+                "search_id": "",
                 "active_tab": "profile",
                 "profile_has_more": False,
                 "next_start": 1,
@@ -400,10 +402,20 @@ class TikTokDownloaderApp:
         options_panel.pack(side=tk.TOP, fill=tk.X)
         ttk.Label(options_panel, text="Search Options (Before Fetch)", style="Muted.TLabel").pack(side=tk.LEFT)
 
-        self.search_sort_var = tk.StringVar(value="综合排序")
-        self.search_time_var = tk.StringVar(value="不限")
-        self.search_duration_var = tk.StringVar(value="不限")
-        self.search_scope_var = tk.StringVar(value="不限")
+        self.search_mode_var = tk.StringVar(value="Standard")
+        self.search_sort_var = tk.StringVar(value="Comprehensive")
+        self.search_time_var = tk.StringVar(value="All")
+        self.search_duration_var = tk.StringVar(value="All")
+        self.search_scope_var = tk.StringVar(value="All")
+
+        ttk.Label(options_panel, text="Mode", style="Muted.TLabel").pack(side=tk.LEFT, padx=(12, 0))
+        ttk.Combobox(
+            options_panel,
+            textvariable=self.search_mode_var,
+            state="readonly",
+            width=10,
+            values=("Standard", "Jingxuan"),
+        ).pack(side=tk.LEFT, padx=(6, 12))
 
         ttk.Label(options_panel, text="Sort", style="Muted.TLabel").pack(side=tk.LEFT, padx=(12, 0))
         ttk.Combobox(
@@ -411,7 +423,7 @@ class TikTokDownloaderApp:
             textvariable=self.search_sort_var,
             state="readonly",
             width=10,
-            values=("综合排序", "最新发布", "最多点赞"),
+            values=("Comprehensive", "Newest", "Most Liked"),
         ).pack(side=tk.LEFT, padx=(6, 10))
 
         ttk.Label(options_panel, text="Time", style="Muted.TLabel").pack(side=tk.LEFT)
@@ -420,7 +432,7 @@ class TikTokDownloaderApp:
             textvariable=self.search_time_var,
             state="readonly",
             width=10,
-            values=("不限", "一天内", "一周内", "半年内"),
+            values=("All", "Past 24 hours", "Past week", "Past 6 months"),
         ).pack(side=tk.LEFT, padx=(6, 10))
 
         ttk.Label(options_panel, text="Duration", style="Muted.TLabel").pack(side=tk.LEFT)
@@ -429,7 +441,7 @@ class TikTokDownloaderApp:
             textvariable=self.search_duration_var,
             state="readonly",
             width=10,
-            values=("不限", "< 1分钟", "1–5分钟"),
+            values=("All", "< 1 min", "1–5 min"),
         ).pack(side=tk.LEFT, padx=(6, 10))
 
         ttk.Label(options_panel, text="Scope", style="Muted.TLabel").pack(side=tk.LEFT)
@@ -438,7 +450,7 @@ class TikTokDownloaderApp:
             textvariable=self.search_scope_var,
             state="readonly",
             width=12,
-            values=("不限", "关注的人", "最近看过", "还未看过"),
+            values=("All", "Following", "Recently watched", "Not watched yet"),
         ).pack(side=tk.LEFT, padx=(6, 0))
 
         ttk.Label(
@@ -849,6 +861,7 @@ class TikTokDownloaderApp:
         state["search_options"] = self._build_search_options() if hasattr(self, "search_sort_var") else {}
         state["search_offset"] = int(self._search_offset)
         state["search_has_more"] = bool(self._search_has_more)
+        state["search_id"] = str(self._search_id)
         state["active_tab"] = self._active_mode()
         state["profile_has_more"] = bool(self._profile_has_more)
         state["next_start"] = int(self._next_start)
@@ -897,14 +910,17 @@ class TikTokDownloaderApp:
         search_options = state.get("search_options") or {}
         if isinstance(search_options, dict):
             try:
-                self.search_sort_var.set(str(search_options.get("sort_label") or "综合排序"))
-                self.search_time_var.set(str(search_options.get("time_label") or "不限"))
-                self.search_duration_var.set(str(search_options.get("duration_label") or "不限"))
-                self.search_scope_var.set(str(search_options.get("scope_label") or "不限"))
+                if hasattr(self, "search_mode_var"):
+                    self.search_mode_var.set(self._normalize_search_label(str(search_options.get("mode") or "Standard"), "mode"))
+                self.search_sort_var.set(self._normalize_search_label(str(search_options.get("sort_label") or "Comprehensive"), "sort"))
+                self.search_time_var.set(self._normalize_search_label(str(search_options.get("time_label") or "All"), "time"))
+                self.search_duration_var.set(self._normalize_search_label(str(search_options.get("duration_label") or "All"), "duration"))
+                self.search_scope_var.set(self._normalize_search_label(str(search_options.get("scope_label") or "All"), "scope"))
             except Exception:
                 pass
         self._search_offset = int(state.get("search_offset") or 0)
         self._search_has_more = bool(state.get("search_has_more"))
+        self._search_id = str(state.get("search_id") or "")
         self.multi_links_text.delete("1.0", tk.END)
         multi_links = state.get("multi_links") or []
         if isinstance(multi_links, list) and multi_links:
@@ -1512,6 +1528,7 @@ class TikTokDownloaderApp:
         self._search_all_videos = []
         self._search_offset = 0
         self._search_has_more = False
+        self._search_id = ""
         self.search_grid.show_skeleton(8)
         self._set_loading(True)
         platform_label = "Douyin" if platform == "douyin" else "TikTok"
@@ -1537,7 +1554,9 @@ class TikTokDownloaderApp:
     def _do_search_keyword(self, keyword: str, platform: str, reset: bool) -> None:
         try:
             options = self._build_search_options()
-            videos, has_more, next_offset = self.tiktok_service.search_by_keyword(
+            if platform == "douyin" and not reset and self._search_id:
+                options["search_id"] = self._search_id
+            videos, has_more, next_offset, next_search_id = self.tiktok_service.search_by_keyword(
                 keyword,
                 platform=platform,
                 offset=self._search_offset if not reset else 0,
@@ -1547,7 +1566,7 @@ class TikTokDownloaderApp:
         except Exception as exc:  # noqa: BLE001
             self.root.after(0, lambda exc=exc: self._handle_search_error(exc))
             return
-        self.root.after(0, lambda: self._handle_search_success_search(videos, keyword, has_more, next_offset, reset))
+        self.root.after(0, lambda: self._handle_search_success_search(videos, keyword, has_more, next_offset, next_search_id, reset))
 
     def _handle_search_success_search(
         self,
@@ -1555,6 +1574,7 @@ class TikTokDownloaderApp:
         keyword: str,
         has_more: bool,
         next_offset: int,
+        next_search_id: str,
         reset: bool,
     ) -> None:
         self._set_loading(False)
@@ -1584,6 +1604,8 @@ class TikTokDownloaderApp:
         self.search_grid_container.refresh_viewport()
         self._search_has_more = bool(has_more)
         self._search_offset = int(next_offset or 0)
+        if self.platform_var.get().strip().lower() == "douyin" and next_search_id:
+            self._search_id = next_search_id
         self._refresh_search_load_more_button()
         self.status_var.set(
             f"Found {len(self._search_all_videos)} video(s) for '{keyword}'."
@@ -1599,28 +1621,29 @@ class TikTokDownloaderApp:
 
     def _build_search_options(self) -> dict[str, Any]:
         sort_map = {
-            "综合排序": 0,
-            "最新发布": 2,
-            "最多点赞": 1,
+            "Comprehensive": 0,
+            "Newest": 2,
+            "Most Liked": 1,
         }
         time_map = {
-            "不限": 0,
-            "一天内": 1,
-            "一周内": 7,
-            "半年内": 180,
+            "All": 0,
+            "Past 24 hours": 1,
+            "Past week": 7,
+            "Past 6 months": 180,
         }
         duration_map = {
-            "不限": "",
-            "< 1分钟": "0-1",
-            "1–5分钟": "1-5",
+            "All": "",
+            "< 1 min": "0-1",
+            "1–5 min": "1-5",
         }
         scope_map = {
-            "不限": "",
-            "关注的人": "follow",
-            "最近看过": "history",
-            "还未看过": "unwatch",
+            "All": "",
+            "Following": "follow",
+            "Recently watched": "history",
+            "Not watched yet": "unwatch",
         }
         return {
+            "mode": self.search_mode_var.get().strip(),
             "sort_label": self.search_sort_var.get().strip(),
             "time_label": self.search_time_var.get().strip(),
             "duration_label": self.search_duration_var.get().strip(),
@@ -1630,6 +1653,37 @@ class TikTokDownloaderApp:
             "duration": duration_map.get(self.search_duration_var.get().strip(), ""),
             "scope": scope_map.get(self.search_scope_var.get().strip(), ""),
         }
+
+    def _normalize_search_label(self, value: str, kind: str) -> str:
+        mappings = {
+            "mode": {
+                "标准": "Standard",
+                "精选": "Jingxuan",
+            },
+            "sort": {
+                "综合排序": "Comprehensive",
+                "最新发布": "Newest",
+                "最多点赞": "Most Liked",
+            },
+            "time": {
+                "不限": "All",
+                "一天内": "Past 24 hours",
+                "一周内": "Past week",
+                "半年内": "Past 6 months",
+            },
+            "duration": {
+                "不限": "All",
+                "< 1分钟": "< 1 min",
+                "1–5分钟": "1–5 min",
+            },
+            "scope": {
+                "不限": "All",
+                "关注的人": "Following",
+                "最近看过": "Recently watched",
+                "还未看过": "Not watched yet",
+            },
+        }
+        return mappings.get(kind, {}).get(value, value)
 
     def _refresh_search_load_more_button(self) -> None:
         if not hasattr(self, "search_load_more_btn"):
@@ -2472,6 +2526,7 @@ class TikTokDownloaderApp:
             "search_options": state.get("search_options") or {},
             "search_offset": int(state.get("search_offset") or 0),
             "search_has_more": bool(state.get("search_has_more")),
+            "search_id": str(state.get("search_id") or ""),
             "active_tab": state.get("active_tab") or "profile",
             "profile_has_more": bool(state.get("profile_has_more")),
             "next_start": int(state.get("next_start") or 1),
@@ -2514,6 +2569,7 @@ class TikTokDownloaderApp:
                         self._platform_states[name]["search_options"] = session.get("search_options") if isinstance(session.get("search_options"), dict) else {}
                         self._platform_states[name]["search_offset"] = int(session.get("search_offset") or 0)
                         self._platform_states[name]["search_has_more"] = bool(session.get("search_has_more"))
+                        self._platform_states[name]["search_id"] = str(session.get("search_id") or "")
                         self._platform_states[name]["active_tab"] = str(session.get("active_tab") or "profile")
                         self._platform_states[name]["profile_has_more"] = bool(session.get("profile_has_more"))
                         self._platform_states[name]["next_start"] = int(session.get("next_start") or 1)
@@ -2532,6 +2588,7 @@ class TikTokDownloaderApp:
                 self._platform_states[name]["search_options"] = session.get("search_options") if isinstance(session.get("search_options"), dict) else {}
                 self._platform_states[name]["search_offset"] = int(session.get("search_offset") or 0)
                 self._platform_states[name]["search_has_more"] = bool(session.get("search_has_more"))
+                self._platform_states[name]["search_id"] = str(session.get("search_id") or "")
                 self._platform_states[name]["active_tab"] = str(session.get("active_tab") or "profile")
                 self._platform_states[name]["profile_has_more"] = bool(session.get("profile_has_more"))
                 self._platform_states[name]["next_start"] = int(session.get("next_start") or 1)

@@ -117,14 +117,14 @@ class TikTokService:
         offset: int = 0,
         count: int = 20,
         options: Dict[str, Any] | None = None,
-    ) -> Tuple[List[Video], bool, int]:
+    ) -> Tuple[List[Video], bool, int, str]:
         term = (keyword or "").strip()
         if not term:
-            return [], False, 0
+            return [], False, 0, ""
         if str(platform).lower() == "douyin":
             return self._douyin_local.search_by_keyword(term, offset=offset, count=count, options=options or {})
         url = f"https://www.tiktok.com/search?q={quote(term)}"
-        return self.fetch_videos([url]), False, 0
+        return self.fetch_videos([url]), False, 0, ""
 
     def refresh_video(self, video: Video) -> Video:
         url = (video.url or "").strip()
