@@ -1686,11 +1686,6 @@ class TikTokDownloaderApp:
         status_var: tk.StringVar,
         button: ttk.Button | None = None,
     ) -> None:
-        is_douyin = (video.platform or "").lower() == "douyin" or "douyin.com/" in (video.url or "").lower()
-        if is_douyin:
-            self._watch_douyin_in_browser(video, popup, status_var, button)
-            return
-
         if vlc is None:
             status_var.set("python-vlc is not available. Install dependency and ensure VLC/libvlc is installed.")
             return

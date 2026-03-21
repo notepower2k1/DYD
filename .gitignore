@@ -1,6 +1,7 @@
 # Python cache
 __pycache__/
 *.py[cod]
+douyin_debug.log
 *$py.class
 
 # Virtual environments
@@ -12,7 +13,7 @@ ENV/
 # Tool/runtime state
 browser_data/
 downloads/
-session_cache.json
+session_cache*.json
 download_history.json
 
 # Build / packaging artifacts
