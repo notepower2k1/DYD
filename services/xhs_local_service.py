@@ -173,6 +173,29 @@ class XhsLocalService:
             raise RuntimeError("Rednote download did not return a valid path.")
         return result
 
+    def get_stream_candidates(self, url: str) -> list[str]:
+        with self._operation_lock:
+            return list(self._run_coro(self._get_stream_candidates_async(url)))
+
+    async def _get_stream_candidates_async(self, url: str) -> list[str]:
+        context, page = await self._ensure_browser_session(keep_visible=self._debug_enabled)
+        if self._debug_enabled:
+            await self._restore_window(page)
+        else:
+            await self._move_window_offscreen(page)
+        await self._ensure_home_ready(page)
+        note_id, xsec_token, xsec_source = self._parse_note_url(url or "")
+        if not note_id:
+            return []
+        try:
+            note_detail = await self._request_note_detail(page, note_id, xsec_source, xsec_token)
+        except Exception:
+            note_detail = None
+        if not isinstance(note_detail, dict):
+            return []
+        candidates = self._collect_video_urls(note_detail)
+        return candidates
+
     def show_browser(self) -> None:
         with self._operation_lock:
             self._run_coro(self._show_browser_async())
@@ -852,6 +875,21 @@ class XhsLocalService:
             raise RuntimeError("Rednote login is required before download.")
 
         refreshed_video = video
+        # Always try to re-evaluate the best media URL from note detail to prefer CDN stream links.
+        if video.url:
+            note_id, xsec_token, xsec_source = self._parse_note_url(video.url)
+            if note_id:
+                try:
+                    note_detail = await self._request_note_detail(page, note_id, xsec_source, xsec_token)
+                except Exception:
+                    note_detail = None
+                if isinstance(note_detail, dict):
+                    candidates = self._collect_video_urls(note_detail)
+                    if candidates:
+                        self._debug("download.candidates", count=len(candidates), sample=candidates[:5])
+                        refreshed_video = self._video_from_note(note_detail, video.url, xsec_token, xsec_source)
+                        refreshed_video.media_url = candidates[0]
+                        self._debug("download.selected", url=refreshed_video.media_url)
         if not refreshed_video.media_url and not refreshed_video.image_urls:
             refreshed_video = await self._fetch_video_async(video.url)
         refreshed_video.is_downloaded = video.is_downloaded
@@ -862,7 +900,29 @@ class XhsLocalService:
             return await self._download_gallery_async(page, refreshed_video, output_dir, progress_hook)
         if not refreshed_video.media_url:
             raise RuntimeError("Could not resolve a playable Rednote media URL for this post.")
-        return await self._download_media_async(page, refreshed_video, output_dir, progress_hook)
+        try:
+            return await self._download_media_async(page, refreshed_video, output_dir, progress_hook)
+        except Exception as exc:
+            self._debug("download.primary_failed", error=str(exc), url=refreshed_video.media_url)
+            # Try alternative URLs from note detail if available.
+            note_id, xsec_token, xsec_source = self._parse_note_url(video.url or "")
+            if note_id:
+                try:
+                    note_detail = await self._request_note_detail(page, note_id, xsec_source, xsec_token)
+                except Exception:
+                    note_detail = None
+                if isinstance(note_detail, dict):
+                    candidates = self._collect_video_urls(note_detail)
+                    candidates = [u for u in candidates if u != refreshed_video.media_url]
+                    for candidate in candidates:
+                        try:
+                            refreshed_video.media_url = candidate
+                            self._debug("download.try_fallback", url=candidate)
+                            return await self._download_media_async(page, refreshed_video, output_dir, progress_hook)
+                        except Exception as inner:
+                            self._debug("download.fallback_failed", error=str(inner), url=candidate)
+                            continue
+            raise
 
     async def _download_media_async(
         self,
@@ -874,6 +934,7 @@ class XhsLocalService:
         media_url = (video.media_url or "").strip()
         if not media_url:
             raise RuntimeError("Missing media URL for Rednote download.")
+        self._debug("download.start", url=media_url)
 
         output_path = self._build_output_path(output_dir, video, media_url)
         user_agent = await page.evaluate("() => navigator.userAgent")
@@ -882,7 +943,12 @@ class XhsLocalService:
             "Referer": self._HOME,
             "Accept": "*/*",
         }
-        response = await page.context.request.get(media_url, headers=headers, fail_on_status_code=True)
+        response = await page.context.request.get(
+            media_url,
+            headers=headers,
+            fail_on_status_code=True,
+            timeout=60000,
+        )
         content_type = str(response.headers.get("content-type") or "").lower()
         if "text/html" in content_type:
             raise RuntimeError("The Rednote media URL returned HTML instead of video content.")
@@ -897,6 +963,7 @@ class XhsLocalService:
         if progress_hook is not None:
             progress_hook({"status": "downloading", "downloaded_bytes": len(content), "total_bytes": total})
             progress_hook({"status": "finished", "filename": str(output_path)})
+        self._debug("download.finished", url=media_url, bytes=len(content))
         return output_path
 
     async def _download_gallery_async(
@@ -2021,13 +2088,31 @@ class XhsLocalService:
         return None
 
     def _extract_video_url(self, note: dict[str, Any]) -> str | None:
+        urls = self._collect_video_urls(note)
+        return urls[0] if urls else None
+
+    def _collect_video_urls(self, note: dict[str, Any]) -> list[str]:
+        urls: list[str] = []
         video = note.get("video") or {}
         if isinstance(video, dict):
             consumer = video.get("consumer") or {}
             if isinstance(consumer, dict):
-                origin_key = consumer.get("originVideoKey") or consumer.get("origin_video_key") or consumer.get("origin_videoKey")
+                origin_key = (
+                    consumer.get("originVideoKey")
+                    or consumer.get("origin_video_key")
+                    or consumer.get("origin_videoKey")
+                )
                 if isinstance(origin_key, str) and origin_key.strip():
-                    return f"https://sns-video-bd.xhscdn.com/{origin_key.strip()}"
+                    urls.append(f"https://sns-video-bd.xhscdn.com/{origin_key.strip()}")
+            # Some Rednote payloads provide direct stream URLs under consumer.playable or consumer.stream.
+            for key in ("playable", "stream", "streams", "playUrl", "play_url"):
+                value = consumer.get(key) if isinstance(consumer, dict) else None
+                if isinstance(value, str) and value.startswith("http"):
+                    urls.append(value)
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, str) and item.startswith("http"):
+                            urls.append(item)
             media = video.get("media") or {}
             if isinstance(media, dict):
                 stream = media.get("stream") or {}
@@ -2041,8 +2126,38 @@ class XhsLocalService:
                                 for candidate in ("master_url", "backup_url", "url"):
                                     url = variant.get(candidate)
                                     if isinstance(url, str) and url.startswith("http"):
-                                        return url
-        return self._find_first_media_url(video)
+                                        urls.append(url)
+        # Fallback: crawl any url fields in the video blob.
+        found = self._find_first_media_url(video)
+        if isinstance(found, str) and found.startswith("http"):
+            urls.append(found)
+        # de-dup while preserving order
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for url in urls:
+            if url in seen:
+                continue
+            seen.add(url)
+            deduped.append(url)
+        # Prefer Rednote CDN stream URLs when available for faster downloads.
+        stream_first = [u for u in deduped if "rednotecdn.com/stream" in u]
+        others = [u for u in deduped if u not in stream_first]
+        # Heuristic: prefer lower stream variant numbers (often cleaner).
+        def _stream_rank(url: str) -> int:
+            # Handle /stream/{a}/{b}/{variant}/... where variant is the 4th segment.
+            match = re.search(r"/stream/\d+/\d+/(\d+)/", url)
+            if match:
+                try:
+                    return int(match.group(1))
+                except Exception:
+                    return 10_000
+            return 10_000
+        # Prefer lower variant numbers; push 259 to the end explicitly.
+        def _stream_sort_key(url: str) -> tuple[int, int]:
+            variant = _stream_rank(url)
+            return (1 if variant == 259 else 0, variant)
+        stream_first.sort(key=_stream_sort_key)
+        return stream_first + others
 
     @staticmethod
     def _find_first_media_url(data: Any) -> str | None:

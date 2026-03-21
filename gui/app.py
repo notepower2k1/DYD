@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
@@ -29,6 +30,11 @@ try:
     import vlc  # type: ignore[import-not-found]
 except Exception:
     vlc = None
+
+try:
+    import mpv  # type: ignore[import-not-found]
+except Exception:
+    mpv = None
 
 
 class TikTokDownloaderApp:
@@ -71,6 +77,7 @@ class TikTokDownloaderApp:
         self._download_queue: list[dict[str, Any]] = []
         self._queue_id_seq = 1
         self._queue_running = False
+        self._queue_cancel_requested = False
         self.platform_var = tk.StringVar(value="tiktok")
         self.platform_choice_var = tk.StringVar(value="")
         self._build_settings_controls()
@@ -94,6 +101,7 @@ class TikTokDownloaderApp:
                 "download_queue": [],
                 "queue_id_seq": 1,
                 "queue_running": False,
+                "queue_cancel_requested": False,
                 "profile_url": "",
                 "profile": None,
                 "profile_videos": [],
@@ -538,21 +546,43 @@ class TikTokDownloaderApp:
         self.queue_status_var = tk.StringVar(value="Queue is empty.")
         ttk.Label(queue_header, textvariable=self.queue_status_var, style="Muted.TLabel").pack(side=tk.RIGHT)
 
+        queue_actions = ttk.Frame(queue_panel, style="Panel.TFrame")
+        queue_actions.pack(fill=tk.X, pady=(6, 0))
+        ttk.Button(
+            queue_actions,
+            text="Download Selected",
+            style="Secondary.TButton",
+            command=self._download_selected_queue_items,
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            queue_actions,
+            text="Cancel Queue",
+            style="Secondary.TButton",
+            command=self._cancel_download_queue,
+        ).pack(side=tk.LEFT, padx=(8, 0))
+
         self.queue_progress_var = tk.DoubleVar(value=0.0)
         self.queue_progress = ttk.Progressbar(queue_panel, maximum=100, variable=self.queue_progress_var)
         self.queue_progress.pack(fill=tk.X, pady=(8, 8))
 
-        queue_columns = ("title", "profile", "status", "progress")
+        queue_columns = ("select", "title", "type", "profile", "size", "status", "progress")
         self.queue_tree = ttk.Treeview(queue_panel, columns=queue_columns, show="headings", height=7)
+        self.queue_tree.heading("select", text="")
         self.queue_tree.heading("title", text="Title")
+        self.queue_tree.heading("type", text="Type")
         self.queue_tree.heading("profile", text="Profile")
+        self.queue_tree.heading("size", text="Size")
         self.queue_tree.heading("status", text="Status")
         self.queue_tree.heading("progress", text="Progress")
-        self.queue_tree.column("title", width=360, anchor="w")
-        self.queue_tree.column("profile", width=120, anchor="w")
+        self.queue_tree.column("select", width=36, anchor="center")
+        self.queue_tree.column("title", width=300, anchor="w")
+        self.queue_tree.column("type", width=70, anchor="center")
+        self.queue_tree.column("profile", width=110, anchor="w")
+        self.queue_tree.column("size", width=90, anchor="e")
         self.queue_tree.column("status", width=140, anchor="w")
         self.queue_tree.column("progress", width=120, anchor="center")
         self.queue_tree.pack(fill=tk.BOTH, expand=True)
+        self.queue_tree.bind("<Button-1>", self._toggle_queue_item_selected)
 
         separator = ttk.Separator(self.downloads_tab, orient="horizontal")
         separator.pack(fill=tk.X, padx=10, pady=(0, 4))
@@ -867,6 +897,7 @@ class TikTokDownloaderApp:
         state["download_queue"] = self._download_queue
         state["queue_id_seq"] = self._queue_id_seq
         state["queue_running"] = self._queue_running
+        state["queue_cancel_requested"] = self._queue_cancel_requested
         state["profile_url"] = self._profile_url or ""
         state["profile"] = {
             "username": getattr(self.profile, "username", None),
@@ -900,6 +931,7 @@ class TikTokDownloaderApp:
         self._download_queue = state["download_queue"]
         self._queue_id_seq = state["queue_id_seq"]
         self._queue_running = state["queue_running"]
+        self._queue_cancel_requested = state.get("queue_cancel_requested", False)
         self._profile_url = str(state.get("profile_url") or "")
         profile_data = state.get("profile")
         self.profile = None
@@ -2329,6 +2361,7 @@ class TikTokDownloaderApp:
         status_var: tk.StringVar,
         button: ttk.Button | None = None,
     ) -> None:
+        self._debug_xhs_event("prepare.start", video)
         if vlc is None:
             status_var.set("python-vlc is not available. Install dependency and ensure VLC/libvlc is installed.")
             return
@@ -2357,6 +2390,16 @@ class TikTokDownloaderApp:
                     if cached_file.exists():
                         source = str(cached_file)
             if not source:
+                if (video.platform or "").lower() in {"xhs", "rednote"}:
+                    try:
+                        candidates = self.tiktok_service.get_xhs_stream_candidates(video.url or "")
+                    except Exception:
+                        candidates = []
+                    if candidates:
+                        source = candidates[0]
+                    elif video.media_url:
+                        source = video.media_url
+            if not source:
                 temp_dir = Path(tempfile.mkdtemp(prefix="dyd_preview_"))
                 try:
                     old_temp_dir = getattr(popup, "_temp_media_dir", None)
@@ -2368,6 +2411,7 @@ class TikTokDownloaderApp:
                     popup._prepared_video_id = video.id  # type: ignore[attr-defined]
                 except Exception as exc:
                     error_message = str(exc or "")
+                    self._debug_xhs_event("prepare.error", video, error_message)
                     try:
                         shutil.rmtree(temp_dir, ignore_errors=True)
                     except Exception:
@@ -2384,6 +2428,10 @@ class TikTokDownloaderApp:
                     self._update_popup_controls(popup)
                     status_var.set(error_message or "Could not prepare this video.")
                     return
+                if isinstance(source, str) and source.startswith("http"):
+                    popup._prepared_video_id = video.id  # type: ignore[attr-defined]
+                    self._play_video_in_popup(popup, video, source, status_var)
+                    return
                 source_path = Path(source)
                 if not source_path.exists():
                     popup._playback_state = "idle"  # type: ignore[attr-defined]
@@ -2396,6 +2444,7 @@ class TikTokDownloaderApp:
                     status_var.set("The prepared media file is empty.")
                     return
                 popup._prepared_video_id = video.id  # type: ignore[attr-defined]
+                self._debug_xhs_event("prepare.ready", video, source)
                 self._play_video_in_popup(popup, video, source, status_var)
 
             self.root.after(0, _apply)
@@ -2403,6 +2452,22 @@ class TikTokDownloaderApp:
         import threading
 
         threading.Thread(target=_resolve, daemon=True).start()
+
+    def _debug_xhs_event(self, message: str, video: Video, detail: str = "") -> None:
+        try:
+            if (video.platform or "").lower() not in {"xhs", "rednote"} and "rednote.com" not in (video.url or ""):
+                return
+            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            payload = {
+                "message": message,
+                "url": video.url or "",
+                "media_url": video.media_url or "",
+                "detail": detail,
+            }
+            line = f"[{stamp}] {json.dumps(payload, ensure_ascii=False)}\n"
+            Path.cwd().joinpath("xhs_debug.log").open("a", encoding="utf-8").write(line)
+        except Exception:
+            pass
 
     def _watch_douyin_in_browser(
         self,
@@ -2522,12 +2587,23 @@ class TikTokDownloaderApp:
 
     @staticmethod
     def _apply_vlc_media_options(media) -> None:
+        user_agent = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+        )
         media_options = (
             ":avcodec-hw=none",
             ":codec=avcodec",
             ":vout=wingdi",
-            ":network-caching=1500",
-            ":file-caching=1000",
+            ":network-caching=3000",
+            ":file-caching=1500",
+            ":clock-jitter=0",
+            ":clock-synchro=0",
+            ":drop-late-frames",
+            ":skip-frames",
+            f":http-user-agent={user_agent}",
+            ":http-referrer=https://www.rednote.com/",
+            ":http-referer=https://www.rednote.com/",
         )
         for option in media_options:
             try:
@@ -2539,18 +2615,30 @@ class TikTokDownloaderApp:
         if vlc is None:
             return None
         option_sets = [
+            # Prefer stable streaming first.
             (
                 "--no-video-title-show",
+                "--network-caching=5000",
+                "--file-caching=2000",
+                "--http-reconnect",
                 "--avcodec-hw=none",
-                "--network-caching=1500",
-                "--file-caching=1000",
-                "--vout=wingdi",
+                "--vout=opengl",
             ),
+            # Fallback if OpenGL has issues.
             (
                 "--no-video-title-show",
+                "--network-caching=5000",
+                "--file-caching=2000",
+                "--http-reconnect",
                 "--avcodec-hw=none",
-                "--network-caching=1500",
-                "--file-caching=1000",
+                "--vout=directx",
+            ),
+            # Safe mode for weak GPUs.
+            (
+                "--no-video-title-show",
+                "--network-caching=5000",
+                "--http-reconnect",
+                "--avcodec-hw=none",
             ),
             ("--no-video-title-show",),
             tuple(),
@@ -2975,10 +3063,13 @@ class TikTokDownloaderApp:
                 "video_id": video.id,
                 "url": video.url,
                 "title": self._short_title(video.title or "Untitled"),
+                "media_type": "Image" if video.image_urls and not video.media_url else "Video",
                 "profile_username": profile_username or "",
                 "target_dir": target_dir,
                 "status": "Queued",
                 "progress": 0.0,
+                "selected": True,
+                "size_bytes": None,
                 "file_path": "",
                 "error": "",
             }
@@ -2986,6 +3077,7 @@ class TikTokDownloaderApp:
             self._download_queue.append(queue_item)
             existing_keys.add(key)
             added += 1
+            self._estimate_queue_item_size(queue_item)
 
         if added == 0:
             self.status_var.set("Selected videos are already in the queue.")
@@ -2995,7 +3087,7 @@ class TikTokDownloaderApp:
         self._refresh_queue_tab()
         self.notebook.select(self.downloads_tab)
         self.status_var.set(f"Queued {added} video(s) for download.")
-        self._start_download_queue()
+        self._save_session_cache()
 
     def _refresh_queue_tab(self) -> None:
         if not hasattr(self, "queue_tree"):
@@ -3005,13 +3097,18 @@ class TikTokDownloaderApp:
 
         for item in self._download_queue:
             progress_text = f"{int(item.get('progress', 0.0))}%"
+            selected_mark = "☑" if item.get("selected", True) else "☐"
+            size_text = self._format_bytes(item.get("size_bytes"))
             self.queue_tree.insert(
                 "",
                 "end",
                 iid=str(item["queue_id"]),
                 values=(
+                    selected_mark,
                     str(item.get("title") or ""),
+                    str(item.get("media_type") or "-"),
                     str(item.get("profile_username") or ""),
+                    size_text,
                     str(item.get("status") or ""),
                     progress_text,
                 ),
@@ -3032,6 +3129,89 @@ class TikTokDownloaderApp:
             self.queue_status_var.set(f"Queue items: {total} | Completed: {completed}")
             self.queue_progress_var.set(100.0 if total and completed == total else 0.0)
 
+    def _toggle_queue_item_selected(self, event: tk.Event) -> None:  # type: ignore[override]
+        if not hasattr(self, "queue_tree"):
+            return
+        region = self.queue_tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+        column = self.queue_tree.identify_column(event.x)
+        if column != "#1":
+            return
+        row_id = self.queue_tree.identify_row(event.y)
+        if not row_id:
+            return
+        item = self._find_queue_item(row_id)
+        if item is None:
+            return
+        if str(item.get("status")) == "Downloading":
+            return
+        item["selected"] = not bool(item.get("selected", True))
+        self._refresh_queue_tab()
+        self._save_session_cache()
+
+    def _download_selected_queue_items(self) -> None:
+        if not self._download_queue:
+            self.status_var.set("Download queue is empty.")
+            return
+        if not any(bool(item.get("selected", True)) and str(item.get("status")) == "Queued" for item in self._download_queue):
+            self.status_var.set("No selected queued items to download.")
+            return
+        self._queue_cancel_requested = False
+        self._start_download_queue()
+
+    def _cancel_download_queue(self) -> None:
+        self._queue_cancel_requested = True
+        for item in self._download_queue:
+            if str(item.get("status")) == "Queued":
+                item["status"] = "Cancelled"
+        self._queue_running = False
+        self._refresh_queue_tab()
+        self.status_var.set("Download queue cancelled.")
+        self._save_session_cache()
+
+    @staticmethod
+    def _format_bytes(value: Any) -> str:
+        try:
+            size = float(value)
+        except Exception:
+            return "-"
+        if size <= 0:
+            return "-"
+        for unit in ("B", "KB", "MB", "GB", "TB"):
+            if size < 1024:
+                return f"{size:.1f}{unit}"
+            size /= 1024
+        return f"{size:.1f}PB"
+
+    def _estimate_queue_item_size(self, queue_item: dict[str, Any]) -> None:
+        import threading
+        import requests
+
+        def _worker() -> None:
+            size_bytes = None
+            video = queue_item.get("video")
+            url = ""
+            try:
+                if isinstance(video, Video):
+                    if (video.platform or "").lower() in {"xhs", "rednote"}:
+                        candidates = self.tiktok_service.get_xhs_stream_candidates(video.url or "")
+                        url = candidates[0] if candidates else (video.media_url or "")
+                    else:
+                        url = video.media_url or video.url or ""
+                if url:
+                    resp = requests.head(url, timeout=10, allow_redirects=True)
+                    length = resp.headers.get("content-length")
+                    if length:
+                        size_bytes = int(length)
+            except Exception:
+                size_bytes = None
+            if size_bytes is not None:
+                queue_item["size_bytes"] = size_bytes
+                self.root.after(0, self._refresh_queue_tab)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def _clear_completed_queue(self) -> None:
         self._download_queue = [
             item for item in self._download_queue
@@ -3042,7 +3222,19 @@ class TikTokDownloaderApp:
     def _start_download_queue(self) -> None:
         if self._queue_running:
             return
-        next_item = next((item for item in self._download_queue if str(item.get("status")) == "Queued"), None)
+        if self._queue_cancel_requested:
+            self._queue_running = False
+            self.status_var.set("Download queue cancelled.")
+            self._refresh_queue_tab()
+            return
+        next_item = next(
+            (
+                item
+                for item in self._download_queue
+                if str(item.get("status")) == "Queued" and bool(item.get("selected", True))
+            ),
+            None,
+        )
         if next_item is None:
             self._queue_running = False
             self.status_var.set("Download queue is idle.")

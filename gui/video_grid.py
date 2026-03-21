@@ -41,10 +41,11 @@ class _VideoTableRow(ttk.Frame):
 
         self.columnconfigure(1, minsize=72)
         self.columnconfigure(2, weight=1, minsize=120)
-        self.columnconfigure(3, minsize=98)
-        self.columnconfigure(4, minsize=92)
-        self.columnconfigure(5, minsize=86)
-        self.columnconfigure(6, minsize=120)
+        self.columnconfigure(3, minsize=70)
+        self.columnconfigure(4, minsize=98)
+        self.columnconfigure(5, minsize=92)
+        self.columnconfigure(6, minsize=86)
+        self.columnconfigure(7, minsize=120)
 
         self._checked = tk.BooleanVar(value=checked)
         ttk.Checkbutton(self, variable=self._checked, command=self._handle_toggle).grid(
@@ -86,12 +87,20 @@ class _VideoTableRow(ttk.Frame):
             justify=tk.LEFT,
         ).grid(row=0, column=2, padx=(0, 10), sticky="w")
 
+        media_type = "Image" if video.image_urls and not video.media_url else "Video"
+        ttk.Label(
+            self,
+            text=media_type,
+            style="Muted.TLabel",
+            anchor="center",
+        ).grid(row=0, column=3, padx=(0, 10), sticky="w")
+
         ttk.Label(
             self,
             text=video.upload_time.strftime("%d-%m-%Y") if video.upload_time else "-",
             style="Muted.TLabel",
             anchor="w",
-        ).grid(row=0, column=3, padx=(0, 10), sticky="w")
+        ).grid(row=0, column=4, padx=(0, 10), sticky="w")
 
         download_text = "Downloaded" if video.is_downloaded else "Download"
         download_state = "disabled" if video.is_downloaded else "normal"
@@ -101,7 +110,7 @@ class _VideoTableRow(ttk.Frame):
             command=self._handle_quick_download,
             style="Secondary.TButton",
             state=download_state,
-        ).grid(row=0, column=4, padx=(0, 10), sticky="w")
+        ).grid(row=0, column=5, padx=(0, 10), sticky="w")
 
         self._bookmarked = tk.BooleanVar(value=bool(video.is_bookmarked))
         bookmark_btn = ttk.Button(
@@ -111,7 +120,7 @@ class _VideoTableRow(ttk.Frame):
             style="Secondary.TButton",
             width=3,
         )
-        bookmark_btn.grid(row=0, column=5, padx=(0, 10), sticky="w")
+        bookmark_btn.grid(row=0, column=6, padx=(0, 10), sticky="w")
         self._bookmark_btn = bookmark_btn
 
         trend_text, trend_bg, trend_fg = self._trend_style(video, trend_threshold)
@@ -127,10 +136,10 @@ class _VideoTableRow(ttk.Frame):
             bd=0,
             highlightthickness=0,
         )
-        trend_label.grid(row=0, column=6, sticky="w")
+        trend_label.grid(row=0, column=7, sticky="w")
 
         separator = ttk.Separator(self, orient="horizontal")
-        separator.grid(row=1, column=0, columnspan=7, sticky="ew", pady=(6, 0))
+        separator.grid(row=1, column=0, columnspan=8, sticky="ew", pady=(6, 0))
 
         self._load_thumbnail_async()
 
@@ -258,10 +267,11 @@ class VideoGrid(ttk.Frame):
 
         self.columnconfigure(1, minsize=72)
         self.columnconfigure(2, weight=1, minsize=120)
-        self.columnconfigure(3, minsize=98)
-        self.columnconfigure(4, minsize=92)
-        self.columnconfigure(5, minsize=86)
-        self.columnconfigure(6, minsize=120)
+        self.columnconfigure(3, minsize=70)
+        self.columnconfigure(4, minsize=98)
+        self.columnconfigure(5, minsize=92)
+        self.columnconfigure(6, minsize=86)
+        self.columnconfigure(7, minsize=120)
 
     @staticmethod
     def _dedupe_videos(videos: Iterable[Video]) -> List[Video]:
@@ -308,12 +318,12 @@ class VideoGrid(ttk.Frame):
     def show_placeholder(self, message: str) -> None:
         self._clear_all()
         empty = ttk.Label(self, text=message, style="Muted.TLabel")
-        empty.grid(row=0, column=0, columnspan=7, sticky="ew", padx=10, pady=20)
+        empty.grid(row=0, column=0, columnspan=8, sticky="ew", padx=10, pady=20)
 
     def show_loading(self, message: str = "Loading...") -> None:
         self._clear_all()
         holder = ttk.Frame(self, style="Panel.TFrame", padding=(10, 18))
-        holder.grid(row=0, column=0, columnspan=7, sticky="ew")
+        holder.grid(row=0, column=0, columnspan=8, sticky="ew")
         ttk.Label(holder, text=message, style="Muted.TLabel").pack(anchor="center", pady=(0, 8))
         bar = ttk.Progressbar(holder, mode="indeterminate", length=260)
         bar.pack(anchor="center")
@@ -329,7 +339,7 @@ class VideoGrid(ttk.Frame):
         self._clear_tail_skeleton()
         if self._loading_bar is None:
             footer = ttk.Frame(self, style="Panel.TFrame", padding=(10, 8))
-            footer.grid(row=max(len(self._ordered_ids) + 1, 1), column=0, columnspan=7, sticky="ew")
+            footer.grid(row=max(len(self._ordered_ids) + 1, 1), column=0, columnspan=8, sticky="ew")
             ttk.Label(footer, text="Loading more videos...", style="Muted.TLabel").pack(anchor="center", pady=(0, 6))
             bar = ttk.Progressbar(footer, mode="indeterminate", length=220)
             bar.pack(anchor="center")
@@ -346,7 +356,7 @@ class VideoGrid(ttk.Frame):
 
         if not video_list:
             empty = ttk.Label(self, text="No videos to display yet.", style="Muted.TLabel")
-            empty.grid(row=1, column=0, columnspan=7, sticky="ew", padx=10, pady=20)
+            empty.grid(row=1, column=0, columnspan=8, sticky="ew", padx=10, pady=20)
             self._fire_selection_changed()
             return
 
@@ -368,7 +378,7 @@ class VideoGrid(ttk.Frame):
         self._fire_selection_changed()
 
     def _build_header(self) -> None:
-        headers = ("", "Preview", "Views / Likes", "Upload Date", "Quick Download", "Bookmark", "Trending")
+        headers = ("", "Preview", "Views / Likes", "Type", "Upload Date", "Quick Download", "Bookmark", "Trending")
         for col, text in enumerate(headers):
             ttk.Label(
                 self,
@@ -397,7 +407,7 @@ class VideoGrid(ttk.Frame):
                 on_open=self._on_open_video,
                 on_quick_download=self._on_quick_download,
             )
-            row.grid(row=row_index, column=0, columnspan=7, sticky="ew")
+            row.grid(row=row_index, column=0, columnspan=8, sticky="ew")
             self._rows[key] = row
             self._videos[key] = video
             self._ordered_ids.append(key)

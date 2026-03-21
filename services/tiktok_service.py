@@ -67,6 +67,9 @@ class TikTokService:
     def hide_xhs_browser(self) -> None:
         self._xhs_local.hide_browser()
 
+    def get_xhs_stream_candidates(self, url: str) -> list[str]:
+        return self._xhs_local.get_stream_candidates(url)
+
     def clear_xhs_session(self) -> None:
         self._xhs_local.clear_session()
 
