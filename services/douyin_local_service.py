@@ -70,11 +70,17 @@ class DouyinLocalService:
             raise RuntimeError("Douyin profile fetch did not return a valid result.")
         return result
 
-    def search_by_keyword(self, keyword: str, count: int = 20) -> list[Video]:
+    def search_by_keyword(
+        self,
+        keyword: str,
+        offset: int = 0,
+        count: int = 20,
+        options: dict[str, Any] | None = None,
+    ) -> tuple[list[Video], bool, int]:
         with self._operation_lock:
-            result = self._run_coro(self._search_by_keyword_async(keyword, count))
-        if not isinstance(result, list):
-            raise RuntimeError("Douyin search did not return a valid result list.")
+            result = self._run_coro(self._search_by_keyword_async(keyword, offset, count, options or {}))
+        if not isinstance(result, tuple) or len(result) != 3:
+            raise RuntimeError("Douyin search did not return a valid result.")
         return result
 
     def download_video(
@@ -230,7 +236,13 @@ class DouyinLocalService:
         )
         return collected, has_more, profile
 
-    async def _search_by_keyword_async(self, keyword: str, count: int) -> list[Video]:
+    async def _search_by_keyword_async(
+        self,
+        keyword: str,
+        offset: int,
+        count: int,
+        options: dict[str, Any],
+    ) -> tuple[list[Video], bool, int]:
         self._ensure_assets()
         context, page = await self._ensure_browser_session(keep_visible=False)
         await self._move_window_offscreen(page)
@@ -251,12 +263,28 @@ class DouyinLocalService:
             "query_correct_type": "1",
             "is_filter_search": "0",
             "from_group_id": "7378810571505847586",
-            "offset": 0,
+            "offset": max(0, int(offset)),
             "count": max(1, min(int(count), 50)),
             "need_filter_settings": "1",
             "list_type": "multi",
             "search_id": "",
         }
+        filter_selected: dict[str, Any] = {}
+        sort_type = options.get("sort_type")
+        publish_time = options.get("publish_time")
+        duration = options.get("duration")
+        scope = options.get("scope")
+        if sort_type is not None:
+            filter_selected["sort_type"] = sort_type
+        if publish_time is not None:
+            filter_selected["publish_time"] = publish_time
+        if duration:
+            filter_selected["duration"] = duration
+        if filter_selected:
+            query_params["filter_selected"] = json.dumps(filter_selected, ensure_ascii=False)
+            query_params["is_filter_search"] = 1
+        if scope:
+            query_params["search_scope"] = scope
         safe_term = quote(term)
         referer_url = f"https://www.douyin.com/search/{safe_term}"
         payload = await self._request_douyin_get(
@@ -279,13 +307,19 @@ class DouyinLocalService:
                 aweme = item.get("aweme_info") or item.get("aweme")
                 if isinstance(aweme, dict):
                     videos.append(self._video_from_aweme_detail(aweme, aweme.get("share_url") or ""))
+        has_more = bool(payload.get("has_more"))
+        next_offset = payload.get("cursor") or payload.get("offset") or (offset + count)
+        try:
+            next_offset = int(next_offset)
+        except Exception:
+            next_offset = int(offset + count)
 
         self._debug(
             "search.keyword",
             keyword=term,
             returned=len(videos),
         )
-        return videos
+        return videos, has_more, next_offset
 
     async def _download_video_async(
         self,

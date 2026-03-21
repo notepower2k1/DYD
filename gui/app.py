@@ -55,6 +55,8 @@ class TikTokDownloaderApp:
         self._bookmark_all_videos: List[Video] = []
         self.search_videos: List[Video] = []
         self._search_all_videos: List[Video] = []
+        self._search_offset = 0
+        self._search_has_more = False
 
         self.profile: Profile | None = None
         self._profile_url: str | None = None
@@ -99,6 +101,9 @@ class TikTokDownloaderApp:
                 "bookmarked_videos": [],
                 "search_keyword": "",
                 "search_videos": [],
+                "search_options": {},
+                "search_offset": 0,
+                "search_has_more": False,
                 "active_tab": "profile",
                 "profile_has_more": False,
                 "next_start": 1,
@@ -379,6 +384,69 @@ class TikTokDownloaderApp:
             style="Secondary.TButton",
         )
         self.search_btn.pack(side=tk.LEFT)
+
+        load_more_slot = ttk.Frame(controls_panel, style="Panel.TFrame")
+        load_more_slot.pack(side=tk.LEFT, padx=(8, 0))
+        self.search_load_more_btn = ttk.Button(
+            load_more_slot,
+            text="Load More",
+            command=self.on_load_more_search,
+            style="Secondary.TButton",
+            state=tk.DISABLED,
+        )
+        self.search_load_more_btn.pack(side=tk.LEFT)
+
+        options_panel = ttk.Frame(self.search_tab, padding=(10, 0, 10, 6), style="Panel.TFrame")
+        options_panel.pack(side=tk.TOP, fill=tk.X)
+        ttk.Label(options_panel, text="Search Options (Before Fetch)", style="Muted.TLabel").pack(side=tk.LEFT)
+
+        self.search_sort_var = tk.StringVar(value="综合排序")
+        self.search_time_var = tk.StringVar(value="不限")
+        self.search_duration_var = tk.StringVar(value="不限")
+        self.search_scope_var = tk.StringVar(value="不限")
+
+        ttk.Label(options_panel, text="Sort", style="Muted.TLabel").pack(side=tk.LEFT, padx=(12, 0))
+        ttk.Combobox(
+            options_panel,
+            textvariable=self.search_sort_var,
+            state="readonly",
+            width=10,
+            values=("综合排序", "最新发布", "最多点赞"),
+        ).pack(side=tk.LEFT, padx=(6, 10))
+
+        ttk.Label(options_panel, text="Time", style="Muted.TLabel").pack(side=tk.LEFT)
+        ttk.Combobox(
+            options_panel,
+            textvariable=self.search_time_var,
+            state="readonly",
+            width=10,
+            values=("不限", "一天内", "一周内", "半年内"),
+        ).pack(side=tk.LEFT, padx=(6, 10))
+
+        ttk.Label(options_panel, text="Duration", style="Muted.TLabel").pack(side=tk.LEFT)
+        ttk.Combobox(
+            options_panel,
+            textvariable=self.search_duration_var,
+            state="readonly",
+            width=10,
+            values=("不限", "< 1分钟", "1–5分钟"),
+        ).pack(side=tk.LEFT, padx=(6, 10))
+
+        ttk.Label(options_panel, text="Scope", style="Muted.TLabel").pack(side=tk.LEFT)
+        ttk.Combobox(
+            options_panel,
+            textvariable=self.search_scope_var,
+            state="readonly",
+            width=12,
+            values=("不限", "关注的人", "最近看过", "还未看过"),
+        ).pack(side=tk.LEFT, padx=(6, 0))
+
+        ttk.Label(
+            self.search_tab,
+            text="Result Filters (After Fetch)",
+            style="Muted.TLabel",
+            padding=(10, 4, 0, 0),
+        ).pack(side=tk.TOP, anchor="w")
 
         self._build_video_tools(
             self.search_tab,
@@ -778,6 +846,9 @@ class TikTokDownloaderApp:
         state["bookmarked_videos"] = [video.to_dict() for video in self._bookmark_all_videos]
         state["search_keyword"] = self.search_keyword_var.get().strip() if hasattr(self, "search_keyword_var") else ""
         state["search_videos"] = [video.to_dict() for video in self._search_all_videos]
+        state["search_options"] = self._build_search_options() if hasattr(self, "search_sort_var") else {}
+        state["search_offset"] = int(self._search_offset)
+        state["search_has_more"] = bool(self._search_has_more)
         state["active_tab"] = self._active_mode()
         state["profile_has_more"] = bool(self._profile_has_more)
         state["next_start"] = int(self._next_start)
@@ -823,6 +894,17 @@ class TikTokDownloaderApp:
         self.profile_url_input.set(self._profile_url)
         if hasattr(self, "search_keyword_var"):
             self.search_keyword_var.set(str(state.get("search_keyword") or ""))
+        search_options = state.get("search_options") or {}
+        if isinstance(search_options, dict):
+            try:
+                self.search_sort_var.set(str(search_options.get("sort_label") or "综合排序"))
+                self.search_time_var.set(str(search_options.get("time_label") or "不限"))
+                self.search_duration_var.set(str(search_options.get("duration_label") or "不限"))
+                self.search_scope_var.set(str(search_options.get("scope_label") or "不限"))
+            except Exception:
+                pass
+        self._search_offset = int(state.get("search_offset") or 0)
+        self._search_has_more = bool(state.get("search_has_more"))
         self.multi_links_text.delete("1.0", tk.END)
         multi_links = state.get("multi_links") or []
         if isinstance(multi_links, list) and multi_links:
@@ -845,6 +927,7 @@ class TikTokDownloaderApp:
         self.multi_grid_container.refresh_viewport()
         self.bookmark_grid_container.refresh_viewport()
         self.search_grid_container.refresh_viewport()
+        self._refresh_search_load_more_button()
         if self.profile:
             self._update_profile_header()
         elif not self.profile_videos:
@@ -975,6 +1058,8 @@ class TikTokDownloaderApp:
         self.download_btn.configure(state=state)
         if hasattr(self, "search_btn"):
             self.search_btn.configure(state=state)
+        if hasattr(self, "search_load_more_btn"):
+            self.search_load_more_btn.configure(state=tk.DISABLED if loading else self.search_load_more_btn["state"])
         combo = getattr(self, "batch_size_combo", None)
         if combo is not None:
             try:
@@ -1425,39 +1510,85 @@ class TikTokDownloaderApp:
 
         self.search_videos = []
         self._search_all_videos = []
+        self._search_offset = 0
+        self._search_has_more = False
         self.search_grid.show_skeleton(8)
         self._set_loading(True)
         platform_label = "Douyin" if platform == "douyin" else "TikTok"
         self.status_var.set(f"Searching {platform_label} for '{keyword}'...")
-        self._do_search_keyword(keyword, platform)
+        self._do_search_keyword(keyword, platform, reset=True)
+
+    def on_load_more_search(self) -> None:
+        if not self._search_has_more:
+            return
+        keyword = (self.search_keyword_var.get() or "").strip()
+        if not keyword:
+            return
+        platform = self.platform_var.get().strip().lower() or "tiktok"
+        if platform != "douyin":
+            messagebox.showinfo("Unavailable", "Load more is currently supported only for Douyin search.")
+            return
+        self.search_grid.show_tail_skeleton(4)
+        self._set_loading(True)
+        self.status_var.set("Loading more search results...")
+        self._do_search_keyword(keyword, platform, reset=False)
 
     @run_in_thread
-    def _do_search_keyword(self, keyword: str, platform: str) -> None:
+    def _do_search_keyword(self, keyword: str, platform: str, reset: bool) -> None:
         try:
-            videos = self.tiktok_service.search_by_keyword(keyword, platform=platform)
+            options = self._build_search_options()
+            videos, has_more, next_offset = self.tiktok_service.search_by_keyword(
+                keyword,
+                platform=platform,
+                offset=self._search_offset if not reset else 0,
+                count=self._get_page_size(),
+                options=options,
+            )
         except Exception as exc:  # noqa: BLE001
             self.root.after(0, lambda exc=exc: self._handle_search_error(exc))
             return
-        self.root.after(0, lambda: self._handle_search_success_search(videos, keyword))
+        self.root.after(0, lambda: self._handle_search_success_search(videos, keyword, has_more, next_offset, reset))
 
-    def _handle_search_success_search(self, videos: List[Video], keyword: str) -> None:
+    def _handle_search_success_search(
+        self,
+        videos: List[Video],
+        keyword: str,
+        has_more: bool,
+        next_offset: int,
+        reset: bool,
+    ) -> None:
         self._set_loading(False)
         videos = self._dedupe_videos(videos)
         if not videos:
             self.status_var.set("No videos found.")
-            self.search_grid.set_videos([], has_more=False)
+            if reset:
+                self.search_grid.set_videos([], has_more=False)
             self.search_grid_container.scroll_to_top()
+            self._search_has_more = False
+            self._refresh_search_load_more_button()
             self._sync_platform_state()
             self._save_session_cache()
             return
 
         self.history_service.apply_status(videos)
-        self._search_all_videos = self._dedupe_videos(list(videos))
+        if reset:
+            self._search_all_videos = self._dedupe_videos(list(videos))
+        else:
+            self._search_all_videos = self._dedupe_videos(self._search_all_videos + list(videos))
         self.search_videos = self._apply_video_controls("search", self._search_all_videos)
-        self.search_grid.set_videos(self.search_videos, has_more=False)
-        self.search_grid_container.scroll_to_top()
+        if reset:
+            self.search_grid.set_videos(self.search_videos, has_more=False)
+            self.search_grid_container.scroll_to_top()
+        else:
+            self.search_grid.set_videos(self.search_videos, has_more=False)
         self.search_grid_container.refresh_viewport()
-        self.status_var.set(f"Found {len(videos)} video(s) for '{keyword}'.")
+        self._search_has_more = bool(has_more)
+        self._search_offset = int(next_offset or 0)
+        self._refresh_search_load_more_button()
+        self.status_var.set(
+            f"Found {len(self._search_all_videos)} video(s) for '{keyword}'."
+            + (" More available." if self._search_has_more else "")
+        )
         self._sync_platform_state()
         self._persist_platform_workspace_cache(self.platform_var.get())
         self._save_session_cache()
@@ -1465,6 +1596,46 @@ class TikTokDownloaderApp:
     def _build_search_url(self, keyword: str) -> str:
         term = quote(keyword.strip())
         return f"https://www.tiktok.com/search?q={term}"
+
+    def _build_search_options(self) -> dict[str, Any]:
+        sort_map = {
+            "综合排序": 0,
+            "最新发布": 2,
+            "最多点赞": 1,
+        }
+        time_map = {
+            "不限": 0,
+            "一天内": 1,
+            "一周内": 7,
+            "半年内": 180,
+        }
+        duration_map = {
+            "不限": "",
+            "< 1分钟": "0-1",
+            "1–5分钟": "1-5",
+        }
+        scope_map = {
+            "不限": "",
+            "关注的人": "follow",
+            "最近看过": "history",
+            "还未看过": "unwatch",
+        }
+        return {
+            "sort_label": self.search_sort_var.get().strip(),
+            "time_label": self.search_time_var.get().strip(),
+            "duration_label": self.search_duration_var.get().strip(),
+            "scope_label": self.search_scope_var.get().strip(),
+            "sort_type": sort_map.get(self.search_sort_var.get().strip(), 0),
+            "publish_time": time_map.get(self.search_time_var.get().strip(), 0),
+            "duration": duration_map.get(self.search_duration_var.get().strip(), ""),
+            "scope": scope_map.get(self.search_scope_var.get().strip(), ""),
+        }
+
+    def _refresh_search_load_more_button(self) -> None:
+        if not hasattr(self, "search_load_more_btn"):
+            return
+        state = tk.NORMAL if self._search_has_more else tk.DISABLED
+        self.search_load_more_btn.configure(state=state)
 
     @run_in_thread
     def _do_search_multi(self, urls: List[str]) -> None:
@@ -1492,6 +1663,10 @@ class TikTokDownloaderApp:
         self.profile_loading_more_var.set("")
         self._refresh_load_more_button()
         self._set_loading(False)
+        if self._active_mode() == "search":
+            self.search_grid.clear_tail_skeleton()
+            self._search_has_more = False
+            self._refresh_search_load_more_button()
         messagebox.showerror("Request Failed", f"Could not fetch TikTok / Douyin data.\n\nDetails: {exc}")
 
     def _handle_search_success_multi(self, videos: List[Video]) -> None:
@@ -2294,6 +2469,9 @@ class TikTokDownloaderApp:
             "bookmarked_videos": state.get("bookmarked_videos") or [],
             "search_keyword": state.get("search_keyword") or "",
             "search_videos": state.get("search_videos") or [],
+            "search_options": state.get("search_options") or {},
+            "search_offset": int(state.get("search_offset") or 0),
+            "search_has_more": bool(state.get("search_has_more")),
             "active_tab": state.get("active_tab") or "profile",
             "profile_has_more": bool(state.get("profile_has_more")),
             "next_start": int(state.get("next_start") or 1),
@@ -2333,6 +2511,9 @@ class TikTokDownloaderApp:
                         self._platform_states[name]["bookmarked_videos"] = session.get("bookmarked_videos") if isinstance(session.get("bookmarked_videos"), list) else []
                         self._platform_states[name]["search_keyword"] = str(session.get("search_keyword") or "")
                         self._platform_states[name]["search_videos"] = session.get("search_videos") if isinstance(session.get("search_videos"), list) else []
+                        self._platform_states[name]["search_options"] = session.get("search_options") if isinstance(session.get("search_options"), dict) else {}
+                        self._platform_states[name]["search_offset"] = int(session.get("search_offset") or 0)
+                        self._platform_states[name]["search_has_more"] = bool(session.get("search_has_more"))
                         self._platform_states[name]["active_tab"] = str(session.get("active_tab") or "profile")
                         self._platform_states[name]["profile_has_more"] = bool(session.get("profile_has_more"))
                         self._platform_states[name]["next_start"] = int(session.get("next_start") or 1)
@@ -2348,6 +2529,9 @@ class TikTokDownloaderApp:
                 self._platform_states[name]["bookmarked_videos"] = session.get("bookmarked_videos") if isinstance(session.get("bookmarked_videos"), list) else []
                 self._platform_states[name]["search_keyword"] = str(session.get("search_keyword") or "")
                 self._platform_states[name]["search_videos"] = session.get("search_videos") if isinstance(session.get("search_videos"), list) else []
+                self._platform_states[name]["search_options"] = session.get("search_options") if isinstance(session.get("search_options"), dict) else {}
+                self._platform_states[name]["search_offset"] = int(session.get("search_offset") or 0)
+                self._platform_states[name]["search_has_more"] = bool(session.get("search_has_more"))
                 self._platform_states[name]["active_tab"] = str(session.get("active_tab") or "profile")
                 self._platform_states[name]["profile_has_more"] = bool(session.get("profile_has_more"))
                 self._platform_states[name]["next_start"] = int(session.get("next_start") or 1)
