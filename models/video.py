@@ -12,6 +12,7 @@ class Video:
     url: str
     platform: Optional[str] = None
     media_url: Optional[str] = None
+    image_urls: tuple[str, ...] = ()
     description: Optional[str] = None
     duration: Optional[int] = None
     thumbnail_url: Optional[str] = None
@@ -45,6 +46,7 @@ class Video:
                 info.get("play_addr"),
                 info.get("download_addr"),
             ),
+            image_urls=tuple(str(url) for url in (info.get("thumbnails") or []) if isinstance(url, str) and url.strip()),
             description=info.get("description") or None,
             duration=info.get("duration"),
             thumbnail_url=info.get("thumbnail"),
@@ -84,6 +86,7 @@ class Video:
             url=str(data.get("url") or ""),
             platform=data.get("platform") or None,
             media_url=data.get("media_url") or None,
+            image_urls=tuple(str(url) for url in (data.get("image_urls") or []) if isinstance(url, str) and str(url).strip()),
             description=data.get("description") or None,
             duration=data.get("duration"),
             thumbnail_url=data.get("thumbnail_url") or None,
@@ -108,6 +111,7 @@ class Video:
             "url": self.url,
             "platform": self.platform,
             "media_url": self.media_url,
+            "image_urls": list(self.image_urls),
             "description": self.description,
             "duration": self.duration,
             "thumbnail_url": self.thumbnail_url,

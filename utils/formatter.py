@@ -4,7 +4,7 @@ from typing import Optional
 
 
 def format_duration(seconds: Optional[int]) -> str:
-    if not seconds:
+    if seconds is None:
         return ""
     m, s = divmod(int(seconds), 60)
     h, m = divmod(m, 60)

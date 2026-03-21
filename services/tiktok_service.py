@@ -4,12 +4,14 @@ from typing import Any, Dict, List, Tuple
 
 import json
 import re
+from pathlib import Path
 
 import requests
 from yt_dlp import YoutubeDL
 
 from models.profile import Profile
 from models.video import Video
+from services.download_service import DownloadService
 from services.douyin_local_service import DouyinLocalService
 
 
@@ -46,6 +48,18 @@ class TikTokService:
 
     def login_to_douyin(self, timeout_seconds: int = 240) -> bool:
         return self._douyin_local.login(timeout_seconds=timeout_seconds)
+
+    def show_douyin_browser(self) -> None:
+        self._douyin_local.show_browser()
+
+    def hide_douyin_browser(self) -> None:
+        self._douyin_local.hide_browser()
+
+    def open_douyin_video_in_browser(self, url: str) -> None:
+        self._douyin_local.open_video_in_browser(url)
+
+    def close(self) -> None:
+        self._douyin_local.close()
 
     def configure_douyin_backend(
         self,
@@ -85,6 +99,28 @@ class TikTokService:
                 videos.append(Video.from_ydl(info))
         return videos
 
+    def refresh_video(self, video: Video) -> Video:
+        url = (video.url or "").strip()
+        if not url:
+            return video
+        if self._douyin_local.is_douyin_url(url) or (video.platform or "").lower() == "douyin":
+            refreshed = self._douyin_local.fetch_video(url)
+            refreshed.is_downloaded = video.is_downloaded
+            refreshed.downloaded_path = video.downloaded_path
+            return refreshed
+
+        info = self._ydl.extract_info(url, download=False)
+        refreshed = Video.from_ydl(info)
+        refreshed.is_downloaded = video.is_downloaded
+        refreshed.downloaded_path = video.downloaded_path
+        return refreshed
+
+    def download_video(self, video: Video, output_dir: Path, progress_hook=None) -> Path:
+        if self._douyin_local.is_douyin_url(video.url) or (video.platform or "").lower() == "douyin":
+            return self._douyin_local.download_video(video, output_dir, progress_hook=progress_hook)
+        service = DownloadService(output_dir, cookie_file=self._cookie_file, video_resolver=self.refresh_video)
+        return service.download_video(video, progress_hook=progress_hook)
+
     def fetch_videos_paged(self, url: str, start: int, count: int) -> Tuple[List[Video], bool, Profile | None]:
         """
         Fetch videos using true pagination for profile/playlist URL.
@@ -96,6 +132,8 @@ class TikTokService:
         url = url.strip()
         if not url:
             return [], False, None
+        if self._douyin_local.is_douyin_url(url):
+            return self._douyin_local.fetch_profile_videos_paged(url, start, count)
 
         end = start + count - 1
         opts = {

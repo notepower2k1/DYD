@@ -35,11 +35,16 @@ class TikTokDownloaderApp:
         self.root = root
 
         self.tiktok_service = TikTokService()
-        self.output_dir = Path.cwd() / "downloads"
+        self._platform_states = self._build_platform_states()
+        self.output_dir = self._platform_states["tiktok"]["output_dir"]
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        self.history_service = DownloadHistoryService(Path.cwd() / "download_history.json")
+        self.history_service = self._platform_states["tiktok"]["history_service"]
         self.session_cache = SessionCacheService(Path.cwd() / "session_cache.json")
+        self._workspace_caches = {
+            "tiktok": SessionCacheService(Path.cwd() / "session_cache_tiktok.json"),
+            "douyin": SessionCacheService(Path.cwd() / "session_cache_douyin.json"),
+        }
 
         self.profile_videos: List[Video] = []
         self.multi_videos: List[Video] = []
@@ -58,6 +63,7 @@ class TikTokDownloaderApp:
         self._queue_id_seq = 1
         self._queue_running = False
         self.platform_var = tk.StringVar(value="tiktok")
+        self.platform_choice_var = tk.StringVar(value="")
         self._build_settings_controls()
         self._apply_douyin_backend_settings(save=False)
 
@@ -67,6 +73,29 @@ class TikTokDownloaderApp:
         self._refresh_downloaded_tab()
         self._restore_last_session()
         self.root.protocol("WM_DELETE_WINDOW", self._on_app_close)
+
+    def _build_platform_states(self) -> dict[str, dict[str, Any]]:
+        base_download_dir = Path.cwd() / "downloads"
+        states: dict[str, dict[str, Any]] = {}
+        for platform in ("tiktok", "douyin"):
+            output_dir = base_download_dir / platform
+            output_dir.mkdir(parents=True, exist_ok=True)
+            states[platform] = {
+                "output_dir": output_dir,
+                "history_service": DownloadHistoryService(Path.cwd() / f"download_history_{platform}.json"),
+                "download_queue": [],
+                "queue_id_seq": 1,
+                "queue_running": False,
+                "profile_url": "",
+                "profile": None,
+                "profile_videos": [],
+                "multi_links": [],
+                "multi_videos": [],
+                "active_tab": "profile",
+                "profile_has_more": False,
+                "next_start": 1,
+            }
+        return states
 
     def _build_styles(self) -> None:
         self.root.configure(bg="#eef2f9")
@@ -96,37 +125,36 @@ class TikTokDownloaderApp:
         style.configure("Status.TLabel", background="#dde6f7", foreground="#1b2a45", padding=(10, 7), font=("Segoe UI", 9))
 
     def _build_ui(self) -> None:
-        main = ttk.Frame(self.root, padding=14, style="App.TFrame")
-        main.pack(fill=tk.BOTH, expand=True)
+        self.home_frame = ttk.Frame(self.root, padding=24, style="App.TFrame")
+        self.home_frame.pack(fill=tk.BOTH, expand=True)
 
-        switcher = ttk.Frame(main, padding=10, style="Panel.TFrame")
-        switcher.pack(side=tk.TOP, fill=tk.X, pady=(0, 10))
+        self.main_frame = ttk.Frame(self.root, padding=14, style="App.TFrame")
 
+        self._build_platform_home(self.home_frame)
+
+        topbar = ttk.Frame(self.main_frame, padding=10, style="Panel.TFrame")
+        topbar.pack(side=tk.TOP, fill=tk.X, pady=(0, 10))
+
+        self.current_platform_title_var = tk.StringVar(value="")
         ttk.Label(
-            switcher,
-            text="Platform",
+            topbar,
+            textvariable=self.current_platform_title_var,
             background="#ffffff",
             foreground="#1d2a44",
-            font=("Segoe UI", 10, "bold"),
-        ).pack(side=tk.LEFT)
-
-        ttk.Button(
-            switcher,
-            text="TikTok",
-            command=lambda: self._set_platform("tiktok"),
-            style="Secondary.TButton",
-        ).pack(side=tk.LEFT, padx=(10, 8))
-        ttk.Button(
-            switcher,
-            text="Douyin",
-            command=lambda: self._set_platform("douyin"),
-            style="Secondary.TButton",
+            font=("Segoe UI", 11, "bold"),
         ).pack(side=tk.LEFT)
 
         self.platform_hint_var = tk.StringVar(value="")
-        ttk.Label(switcher, textvariable=self.platform_hint_var, style="Muted.TLabel").pack(side=tk.RIGHT)
+        ttk.Label(topbar, textvariable=self.platform_hint_var, style="Muted.TLabel").pack(side=tk.LEFT, padx=(12, 0))
 
-        self.notebook = ttk.Notebook(main)
+        ttk.Button(
+            topbar,
+            text="Change Platform",
+            command=self._show_platform_home,
+            style="Secondary.TButton",
+        ).pack(side=tk.RIGHT)
+
+        self.notebook = ttk.Notebook(self.main_frame)
         self.notebook.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.notebook.bind("<<NotebookTabChanged>>", lambda _e: self._save_session_cache())
 
@@ -142,7 +170,7 @@ class TikTokDownloaderApp:
         self._build_multi_tab()
         self._build_downloads_tab()
 
-        footer = ttk.Frame(main, padding=10, style="Panel.TFrame")
+        footer = ttk.Frame(self.main_frame, padding=10, style="Panel.TFrame")
         footer.pack(side=tk.TOP, fill=tk.X, pady=(10, 0))
 
         self.selected_var = tk.StringVar(value="Selected 0 video(s).")
@@ -159,6 +187,42 @@ class TikTokDownloaderApp:
         self.status_var = tk.StringVar(value="Choose a tab and fetch videos.")
         ttk.Label(footer, textvariable=self.status_var, style="Muted.TLabel", anchor=tk.W).pack(side=tk.RIGHT, padx=(0, 14))
         self._refresh_platform_ui(save=False)
+
+    def _build_platform_home(self, master: ttk.Frame) -> None:
+        hero = ttk.Frame(master, padding=18, style="Panel.TFrame")
+        hero.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            hero,
+            text="Choose a Platform",
+            background="#ffffff",
+            foreground="#1d2a44",
+            font=("Segoe UI", 18, "bold"),
+        ).pack(anchor="w")
+        ttk.Label(
+            hero,
+            text="Open only the workspace you need. Each platform keeps its own download folder and download history.",
+            style="Muted.TLabel",
+            wraplength=760,
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=(6, 18))
+
+        cards = ttk.Frame(hero, style="Panel.TFrame")
+        cards.pack(fill=tk.X)
+
+        self._build_platform_card(cards, "TikTok", "Profile tools, multi-link fetch, downloads", True, lambda: self._enter_platform("tiktok")).pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        self._build_platform_card(cards, "Douyin", "Profile tools, multi-link fetch, downloads", True, lambda: self._enter_platform("douyin")).pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+        self._build_platform_card(cards, "Xiaohongshu", "Coming soon", False, None).pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0))
+
+    def _build_platform_card(self, master: ttk.Frame, title: str, subtitle: str, enabled: bool, command) -> ttk.Frame:
+        card = ttk.Frame(master, padding=16, style="Panel.TFrame")
+        ttk.Label(card, text=title, background="#ffffff", foreground="#1d2a44", font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        ttk.Label(card, text=subtitle, style="Muted.TLabel", wraplength=220, justify=tk.LEFT).pack(anchor="w", pady=(8, 18))
+        if enabled:
+            ttk.Button(card, text=f"Open {title}", command=command, style="Primary.TButton").pack(anchor="w")
+        else:
+            ttk.Button(card, text="Coming Soon", state=tk.DISABLED, style="Secondary.TButton").pack(anchor="w")
+        return card
 
     def _build_profile_tab(self) -> None:
         controls_panel = ttk.Frame(self.profile_tab, padding=10, style="Panel.TFrame")
@@ -208,6 +272,7 @@ class TikTokDownloaderApp:
             self.profile_grid_container.container,
             on_selection_change=self._on_selection_change,
             on_open_video=self._open_video_details,
+            on_quick_download=self._queue_single_video,
             on_load_more=None,
             columns=5,
             trend_threshold=self._get_trend_threshold(),
@@ -215,7 +280,6 @@ class TikTokDownloaderApp:
         )
         self.profile_grid.pack(fill=tk.BOTH, expand=True)
         self.profile_grid_container.set_on_viewport_changed(self.profile_grid.update_visible_range)
-        self.profile_grid_container.set_on_near_bottom(self.on_load_more_profile, threshold_px=900)
 
         self.profile_loading_more_var = tk.StringVar(value="")
         self.profile_loading_more_label = ttk.Label(
@@ -225,6 +289,14 @@ class TikTokDownloaderApp:
             anchor="center",
         )
         self.profile_loading_more_label.pack(side=tk.TOP, fill=tk.X, pady=(6, 0))
+
+        self.load_more_profile_btn = ttk.Button(
+            self.profile_tab,
+            text="Load More",
+            command=self.on_load_more_profile,
+            style="Secondary.TButton",
+        )
+        self.load_more_profile_btn.pack(side=tk.TOP, pady=(6, 0))
         self._show_profile_welcome_state()
 
     def _build_multi_tab(self) -> None:
@@ -262,6 +334,7 @@ class TikTokDownloaderApp:
             self.multi_grid_container.container,
             on_selection_change=self._on_selection_change,
             on_open_video=self._open_video_details,
+            on_quick_download=self._queue_single_video,
             on_load_more=None,
             columns=5,
             trend_threshold=self._get_trend_threshold(),
@@ -342,11 +415,36 @@ class TikTokDownloaderApp:
         self.douyin_backend_command_var = tk.StringVar(value="")
 
     def _show_profile_welcome_state(self) -> None:
-        self.profile_name_var.set("Discover a TikTok profile")
-        self.profile_extra_var.set("Paste a profile URL to load videos, or continue from the last cached session.")
+        is_douyin = self.platform_var.get().strip().lower() == "douyin"
+        self.profile_name_var.set("Discover a Douyin profile" if is_douyin else "Discover a TikTok profile")
+        self.profile_extra_var.set(
+            "Paste a Douyin profile URL or sec_user_id to load videos, or continue from the last cached session."
+            if is_douyin
+            else "Paste a profile URL to load videos, or continue from the last cached session."
+        )
         self.profile_avatar_label.configure(text="@", image="", anchor="center", background="#dfe8f7", foreground="#6a7da6", font=("Segoe UI", 18, "bold"))
         self._profile_avatar_img = None
-        self.profile_grid.show_skeleton(max(10, self._page_size))
+        self.profile_grid.show_loading("Loading workspace...")
+        self.root.after(
+            220,
+            lambda: self.profile_grid.show_placeholder(
+                "Paste a Douyin profile URL to load videos."
+                if is_douyin
+                else "Paste a TikTok profile URL to load videos."
+            ) if not self.profile_videos else None,
+        )
+        self._refresh_load_more_button()
+
+    def _refresh_load_more_button(self) -> None:
+        if not hasattr(self, "load_more_profile_btn"):
+            return
+        if self._loading_profile_page:
+            self.load_more_profile_btn.configure(state="disabled", text="Loading...")
+            return
+        if self._profile_has_more and self._profile_url:
+            self.load_more_profile_btn.configure(state="normal", text="Load More")
+        else:
+            self.load_more_profile_btn.configure(state="disabled", text="No More Videos")
 
     def _build_video_tools(
         self,
@@ -367,18 +465,21 @@ class TikTokDownloaderApp:
 
         tools = ttk.Frame(master, padding=(10, 0, 10, 6), style="Panel.TFrame")
         tools.pack(side=tk.TOP, fill=tk.X)
+        setattr(self, f"{prefix}_tools_frame", tools)
 
         ttk.Button(tools, text="Select All", style="Secondary.TButton", command=select_all_command).pack(side=tk.LEFT)
         ttk.Button(tools, text="Unselect All", style="Secondary.TButton", command=clear_selection_command).pack(side=tk.LEFT, padx=(8, 12))
 
         ttk.Label(tools, text="Sort", style="Muted.TLabel").pack(side=tk.LEFT)
-        ttk.Combobox(
+        sort_key_combo = ttk.Combobox(
             tools,
             textvariable=getattr(self, f"{prefix}_sort_key_var"),
             state="readonly",
             width=14,
             values=("upload_time", "view_count", "like_count", "comment_count", "trend_score"),
-        ).pack(side=tk.LEFT, padx=(6, 6))
+        )
+        sort_key_combo.pack(side=tk.LEFT, padx=(6, 6))
+        setattr(self, f"{prefix}_sort_key_combo", sort_key_combo)
         ttk.Combobox(
             tools,
             textvariable=getattr(self, f"{prefix}_sort_order_var"),
@@ -387,15 +488,19 @@ class TikTokDownloaderApp:
             values=("desc", "asc"),
         ).pack(side=tk.LEFT, padx=(0, 12))
 
-        for label, attr_name, width in (
-            ("Min views", f"{prefix}_min_views_var", 9),
-            ("Min likes", f"{prefix}_min_likes_var", 9),
-            ("Min comments", f"{prefix}_min_comments_var", 10),
-            ("Min trend", f"{prefix}_min_trend_var", 7),
-            ("Max age days", f"{prefix}_max_age_days_var", 8),
+        for key, label, attr_name, width in (
+            ("views", "Min views", f"{prefix}_min_views_var", 9),
+            ("likes", "Min likes", f"{prefix}_min_likes_var", 9),
+            ("comments", "Min comments", f"{prefix}_min_comments_var", 10),
+            ("trend", "Min trend", f"{prefix}_min_trend_var", 7),
+            ("age", "Max age days", f"{prefix}_max_age_days_var", 8),
         ):
-            ttk.Label(tools, text=label, style="Muted.TLabel").pack(side=tk.LEFT)
-            ttk.Entry(tools, textvariable=getattr(self, attr_name), width=width).pack(side=tk.LEFT, padx=(6, 10))
+            label_widget = ttk.Label(tools, text=label, style="Muted.TLabel")
+            label_widget.pack(side=tk.LEFT)
+            entry_widget = ttk.Entry(tools, textvariable=getattr(self, attr_name), width=width)
+            entry_widget.pack(side=tk.LEFT, padx=(6, 10))
+            setattr(self, f"{prefix}_{key}_label_widget", label_widget)
+            setattr(self, f"{prefix}_{key}_entry_widget", entry_widget)
 
         ttk.Button(tools, text="Apply", style="Secondary.TButton", command=apply_command).pack(side=tk.LEFT)
         ttk.Button(tools, text="Reset", style="Secondary.TButton", command=reset_command).pack(side=tk.LEFT, padx=(8, 0))
@@ -473,6 +578,12 @@ class TikTokDownloaderApp:
             style="Secondary.TButton",
             command=self._login_to_douyin,
         ).pack(side=tk.LEFT)
+        ttk.Button(
+            login_row,
+            text="Show Douyin Browser",
+            style="Secondary.TButton",
+            command=self._show_douyin_browser,
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
         backend_row = ttk.Frame(panel, style="Panel.TFrame")
         backend_row.pack(fill=tk.X, pady=(16, 0))
@@ -524,17 +635,125 @@ class TikTokDownloaderApp:
     def run(self) -> None:
         self.root.mainloop()
 
-    def _set_platform(self, platform: str, save: bool = True) -> None:
+    def _enter_platform(self, platform: str) -> None:
+        self._set_platform(platform, save=True)
+        self.home_frame.pack_forget()
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+        self.status_var.set(f"{self._platform_display_name()} workspace is ready.")
+
+    def _show_platform_home(self) -> None:
+        self._sync_platform_state()
+        self._save_session_cache()
+        self.main_frame.pack_forget()
+        self.home_frame.pack(fill=tk.BOTH, expand=True)
+
+    def _set_platform(self, platform: str, save: bool = True, sync_current: bool = True) -> None:
+        if sync_current:
+            self._sync_platform_state()
         platform = "douyin" if str(platform).lower() == "douyin" else "tiktok"
         self.platform_var.set(platform)
+        self._apply_platform_state(platform)
         self._refresh_platform_ui(save=save)
+
+    def _sync_platform_state(self) -> None:
+        platform = self.platform_var.get().strip().lower() or "tiktok"
+        state = self._platform_states.get(platform)
+        if not state:
+            return
+        state["output_dir"] = self.output_dir
+        state["history_service"] = self.history_service
+        state["download_queue"] = self._download_queue
+        state["queue_id_seq"] = self._queue_id_seq
+        state["queue_running"] = self._queue_running
+        state["profile_url"] = self._profile_url or ""
+        state["profile"] = {
+            "username": getattr(self.profile, "username", None),
+            "display_name": getattr(self.profile, "display_name", None),
+            "avatar_url": getattr(self.profile, "avatar_url", None),
+            "follower_count": getattr(self.profile, "follower_count", None),
+            "following_count": getattr(self.profile, "following_count", None),
+            "like_count": getattr(self.profile, "like_count", None),
+            "video_count": getattr(self.profile, "video_count", None),
+        } if self.profile else None
+        state["profile_videos"] = [video.to_dict() for video in self._profile_all_videos]
+        state["multi_links"] = self._parse_multi_links()
+        state["multi_videos"] = [video.to_dict() for video in self._multi_all_videos]
+        state["active_tab"] = self._active_mode()
+        state["profile_has_more"] = bool(self._profile_has_more)
+        state["next_start"] = int(self._next_start)
+
+    def _apply_platform_state(self, platform: str) -> None:
+        state = self._platform_states.get(platform)
+        if not state:
+            return
+        self.output_dir = state["output_dir"]
+        self.history_service = state["history_service"]
+        self._download_queue = state["download_queue"]
+        self._queue_id_seq = state["queue_id_seq"]
+        self._queue_running = state["queue_running"]
+        self._profile_url = str(state.get("profile_url") or "")
+        profile_data = state.get("profile")
+        self.profile = None
+        if isinstance(profile_data, dict):
+            self.profile = Profile(
+                username=profile_data.get("username") or "",
+                display_name=profile_data.get("display_name") or "",
+                avatar_url=profile_data.get("avatar_url") or "",
+                follower_count=profile_data.get("follower_count"),
+                following_count=profile_data.get("following_count"),
+                like_count=profile_data.get("like_count"),
+                video_count=profile_data.get("video_count"),
+            )
+        self._profile_has_more = bool(state.get("profile_has_more"))
+        self._next_start = int(state.get("next_start") or 1)
+        profile_rows = state.get("profile_videos") or []
+        multi_rows = state.get("multi_videos") or []
+        self._profile_all_videos = self._dedupe_videos([Video.from_dict(row) for row in profile_rows if isinstance(row, dict)])
+        self._multi_all_videos = self._dedupe_videos([Video.from_dict(row) for row in multi_rows if isinstance(row, dict)])
+        self.profile_videos = self._apply_video_controls("profile", self._profile_all_videos)
+        self.multi_videos = self._apply_video_controls("multi", self._multi_all_videos)
+        self.profile_url_input.set(self._profile_url)
+        self.multi_links_text.delete("1.0", tk.END)
+        multi_links = state.get("multi_links") or []
+        if isinstance(multi_links, list) and multi_links:
+            self.multi_links_text.insert("1.0", "\n".join(str(link) for link in multi_links))
+        self._refresh_queue_tab()
+        self._refresh_downloaded_tab()
+        self.history_service.apply_status(self._profile_all_videos)
+        self.history_service.apply_status(self._multi_all_videos)
+        self.profile_grid.set_videos(self.profile_videos, has_more=self._profile_has_more)
+        self.multi_grid.set_videos(self.multi_videos, has_more=False)
+        self.profile_grid_container.scroll_to_top()
+        self.multi_grid_container.scroll_to_top()
+        self.profile_grid_container.refresh_viewport()
+        self.multi_grid_container.refresh_viewport()
+        if self.profile:
+            self._update_profile_header()
+        elif not self.profile_videos:
+            self._show_profile_welcome_state()
+        else:
+            self.profile_name_var.set("")
+            self.profile_extra_var.set("")
+            self.profile_avatar_label.configure(image="", text="")
+            self._profile_avatar_img = None
+        active_tab = str(state.get("active_tab") or "profile")
+        if active_tab == "multi":
+            self.notebook.select(self.multi_tab)
+        elif active_tab in {"downloads", "downloaded"}:
+            self.notebook.select(self.downloads_tab)
+        else:
+            self.notebook.select(self.profile_tab)
+
+    def _platform_display_name(self) -> str:
+        return "Douyin" if self.platform_var.get().strip().lower() == "douyin" else "TikTok"
 
     def _refresh_platform_ui(self, save: bool = True) -> None:
         platform = self.platform_var.get().strip().lower() or "tiktok"
         is_douyin = platform == "douyin"
+        self.current_platform_title_var.set("Douyin Workspace" if is_douyin else "TikTok Workspace")
 
         self.platform_hint_var.set(
-            "Douyin mode: direct video links only."
+            "Douyin mode: profile and video tools."
             if is_douyin
             else "TikTok mode: profile and video tools."
         )
@@ -553,24 +772,66 @@ class TikTokDownloaderApp:
         self.fetch_links_btn.configure(
             text="Fetch Douyin Links" if is_douyin else "Fetch TikTok Links"
         )
+        if not self.profile_videos:
+            self._show_profile_welcome_state()
+        self._refresh_video_tool_ui("profile", is_douyin)
+        self._refresh_video_tool_ui("multi", is_douyin)
 
-        if is_douyin:
-            self.notebook.hide(self.profile_tab)
-            if self.notebook.select() == str(self.profile_tab):
-                self.notebook.select(self.multi_tab)
-            if not self.multi_videos:
-                self.status_var.set("Douyin mode is active. Use Multi-link for Douyin videos.")
-        else:
-            try:
-                self.notebook.add(self.profile_tab, text="Profile")
-            except Exception:
-                pass
-            self.notebook.insert(0, self.profile_tab)
-            if not self.profile_videos and not self.multi_videos:
-                self.status_var.set("TikTok mode is active. Choose Profile or Multi-link.")
+        try:
+            self.notebook.add(self.profile_tab, text="Profile")
+        except Exception:
+            pass
+        self.notebook.insert(0, self.profile_tab)
+        if not self.profile_videos and not self.multi_videos:
+            self.status_var.set(
+                "Douyin mode is active. Choose Profile or Multi-link."
+                if is_douyin
+                else "TikTok mode is active. Choose Profile or Multi-link."
+            )
 
         if save:
             self._save_session_cache()
+
+    def _refresh_video_tool_ui(self, prefix: str, is_douyin: bool) -> None:
+        sort_combo = getattr(self, f"{prefix}_sort_key_combo", None)
+        if sort_combo is not None:
+            sort_values = ("upload_time", "like_count", "comment_count", "trend_score") if is_douyin else (
+                "upload_time",
+                "view_count",
+                "like_count",
+                "comment_count",
+                "trend_score",
+            )
+            try:
+                sort_combo.configure(values=sort_values)
+            except Exception:
+                pass
+            sort_var = getattr(self, f"{prefix}_sort_key_var")
+            if is_douyin and sort_var.get().strip() == "view_count":
+                sort_var.set("like_count")
+
+        views_label = getattr(self, f"{prefix}_views_label_widget", None)
+        views_entry = getattr(self, f"{prefix}_views_entry_widget", None)
+        likes_label = getattr(self, f"{prefix}_likes_label_widget", None)
+        if views_label is not None:
+            if is_douyin:
+                if views_label.winfo_manager():
+                    views_label.pack_forget()
+            elif not views_label.winfo_manager():
+                if likes_label is not None and likes_label.winfo_manager():
+                    views_label.pack(side=tk.LEFT, before=likes_label)
+                else:
+                    views_label.pack(side=tk.LEFT)
+        if views_entry is not None:
+            if is_douyin:
+                if views_entry.winfo_manager():
+                    views_entry.pack_forget()
+                getattr(self, f"{prefix}_min_views_var").set("")
+            elif not views_entry.winfo_manager():
+                if likes_label is not None and likes_label.winfo_manager():
+                    views_entry.pack(side=tk.LEFT, padx=(6, 10), before=likes_label)
+                else:
+                    views_entry.pack(side=tk.LEFT, padx=(6, 10))
 
     def _active_mode(self) -> str:
         current = self.notebook.select()
@@ -612,6 +873,61 @@ class TikTokDownloaderApp:
         if not raw:
             return []
         return [p.strip() for p in raw.replace("\n", " ").split(" ") if p.strip()]
+
+    @staticmethod
+    def _video_identity(video: Video) -> str:
+        return (video.id or video.url or "").strip()
+
+    def _merge_video(self, base: Video, incoming: Video) -> Video:
+        for attr in (
+            "title",
+            "url",
+            "platform",
+            "media_url",
+            "description",
+            "duration",
+            "thumbnail_url",
+            "author",
+            "uploader",
+            "view_count",
+            "like_count",
+            "comment_count",
+            "share_count",
+            "bookmark_count",
+            "upload_time",
+            "music_title",
+        ):
+            current_value = getattr(base, attr)
+            if current_value in (None, "", 0):
+                incoming_value = getattr(incoming, attr)
+                if incoming_value not in (None, "", 0):
+                    setattr(base, attr, incoming_value)
+
+        if not base.image_urls and incoming.image_urls:
+            base.image_urls = incoming.image_urls
+        if not base.tags and incoming.tags:
+            base.tags = incoming.tags
+        if incoming.is_downloaded and not base.is_downloaded:
+            base.is_downloaded = True
+        if not base.downloaded_path and incoming.downloaded_path:
+            base.downloaded_path = incoming.downloaded_path
+        return base
+
+    def _dedupe_videos(self, videos: List[Video]) -> List[Video]:
+        ordered: list[Video] = []
+        by_key: dict[str, Video] = {}
+        for video in videos:
+            if not video:
+                continue
+            key = self._video_identity(video)
+            if not key:
+                continue
+            if key in by_key:
+                self._merge_video(by_key[key], video)
+                continue
+            by_key[key] = video
+            ordered.append(video)
+        return ordered
 
     def _get_page_size(self) -> int:
         try:
@@ -705,6 +1021,19 @@ class TikTokDownloaderApp:
         self.status_var.set("Could not start the Douyin login flow.")
         messagebox.showerror("Douyin Login", str(exc))
 
+    @run_in_thread
+    def _show_douyin_browser(self) -> None:
+        try:
+            self.tiktok_service.show_douyin_browser()
+        except Exception as exc:  # noqa: BLE001
+            self.root.after(0, lambda exc=exc: messagebox.showerror("Douyin Browser", str(exc)))
+            return
+        self.root.after(0, self._handle_douyin_browser_shown)
+
+    def _handle_douyin_browser_shown(self) -> None:
+        self.status_var.set("Douyin browser is now visible.")
+        self.douyin_login_status_var.set("Douyin browser is visible. Log in there if needed.")
+
     def _parse_int_filter(self, value: str) -> int | None:
         text = value.strip()
         if not text:
@@ -731,6 +1060,11 @@ class TikTokDownloaderApp:
         min_comments = self._parse_int_filter(getattr(self, f"{prefix}_min_comments_var").get())
         min_trend = self._parse_float_filter(getattr(self, f"{prefix}_min_trend_var").get())
         max_age_days = self._parse_float_filter(getattr(self, f"{prefix}_max_age_days_var").get())
+        is_douyin = self.platform_var.get().strip().lower() == "douyin"
+        if is_douyin:
+            min_views = None
+            if sort_key == "view_count":
+                sort_key = "like_count"
 
         filtered = []
         now = __import__("datetime").datetime.now()
@@ -818,20 +1152,27 @@ class TikTokDownloaderApp:
         popup.destroy()
 
     def on_fetch_profile(self) -> None:
-        if self.platform_var.get().strip().lower() == "douyin":
-            messagebox.showinfo(
-                "Douyin Mode",
-                "Douyin is currently separated into direct video mode.\n\nPlease use the Multi-link tab for Douyin videos.",
-            )
-            return
+        is_douyin = self.platform_var.get().strip().lower() == "douyin"
         url = self.profile_url_input.get().strip()
         if not url:
             messagebox.showwarning("Missing URL", "Please enter one profile URL.")
             return
-        if "douyin.com" in url.lower():
-            messagebox.showinfo(
-                "Not Yet Supported",
-                "Douyin profile mode is not implemented yet.\n\nFor now, please use Douyin video links in the Multi-link tab.",
+        if is_douyin and "douyin.com" not in url.lower() and "iesdouyin.com" not in url.lower() and "v.douyin.com" not in url.lower() and not url.startswith("MS4w"):
+            messagebox.showwarning(
+                "Wrong Platform",
+                "Douyin mode is active.\n\nPlease enter a Douyin profile URL or sec_user_id.",
+            )
+            return
+        if not is_douyin and "douyin.com" in url.lower():
+            messagebox.showwarning(
+                "Wrong Platform",
+                "TikTok mode is active.\n\nPlease switch to Douyin mode for Douyin profiles.",
+            )
+            return
+        if is_douyin and not self.tiktok_service.has_douyin_login_session():
+            messagebox.showwarning(
+                "Douyin Login Required",
+                "Please open Settings and click 'Login to Douyin' before fetching Douyin profiles.",
             )
             return
 
@@ -844,15 +1185,20 @@ class TikTokDownloaderApp:
         self._loading_profile_page = False
         self.profile_loading_more_var.set("")
         self.profile_grid.show_skeleton(self._page_size)
+        self._refresh_load_more_button()
 
-        self.profile = Profile(username=self._extract_username_from_url(url))
+        self.profile = Profile(username=self._extract_username_from_url(url) if not is_douyin else url)
         self.profile_name_var.set(self.profile.username and f"@{self.profile.username}" or "Profile")
         self.profile_extra_var.set("Loading profile metadata...")
         self.profile_avatar_label.configure(image="", text="")
         self._profile_avatar_img = None
 
         self._set_loading(True)
-        self.status_var.set(f"Fetching first {self._page_size} profile videos...")
+        self.status_var.set(
+            f"Fetching first {self._page_size} Douyin profile videos..."
+            if is_douyin
+            else f"Fetching first {self._page_size} profile videos..."
+        )
         self._do_search_profile(url, self._next_start)
 
     def on_fetch_multi_links(self) -> None:
@@ -917,33 +1263,44 @@ class TikTokDownloaderApp:
         self._loading_profile_page = False
         self.profile_grid.clear_tail_skeleton()
         self.profile_loading_more_var.set("")
+        self._refresh_load_more_button()
         self._set_loading(False)
         messagebox.showerror("Request Failed", f"Could not fetch TikTok / Douyin data.\n\nDetails: {exc}")
 
     def _handle_search_success_multi(self, videos: List[Video]) -> None:
         self._set_loading(False)
+        videos = self._dedupe_videos(videos)
         if not videos:
             self.status_var.set("No videos found.")
             self.multi_grid.set_videos([], has_more=False)
+            self.multi_grid_container.scroll_to_top()
+            self._sync_platform_state()
             self._save_session_cache()
             return
 
         self.history_service.apply_status(videos)
-        self._multi_all_videos = list(videos)
+        self._multi_all_videos = self._dedupe_videos(list(videos))
         self.multi_videos = self._apply_video_controls("multi", self._multi_all_videos)
         self.multi_grid.set_videos(self.multi_videos, has_more=False)
+        self.multi_grid_container.scroll_to_top()
         self.multi_grid_container.refresh_viewport()
         self.status_var.set(f"Found {len(videos)} videos from multiple links.")
+        self._sync_platform_state()
+        self._persist_platform_workspace_cache(self.platform_var.get())
         self._save_session_cache()
 
     def _handle_search_success_profile(self, url: str, start: int, videos: List[Video], has_more: bool, profile: Profile | None) -> None:
         self._loading_profile_page = False
         self.profile_grid.clear_tail_skeleton()
         self.profile_loading_more_var.set("")
+        self._refresh_load_more_button()
         self._set_loading(False)
+        videos = self._dedupe_videos(videos)
         if not videos and start == 1:
             self.status_var.set("No videos found.")
             self.profile_grid.set_videos([], has_more=False)
+            self.profile_grid_container.scroll_to_top()
+            self._sync_platform_state()
             self._save_session_cache()
             return
 
@@ -959,22 +1316,36 @@ class TikTokDownloaderApp:
         self.history_service.apply_status(videos)
 
         if start == 1:
-            self._profile_all_videos = list(videos)
+            self._profile_all_videos = self._dedupe_videos(list(videos))
             self.profile_videos = self._apply_video_controls("profile", self._profile_all_videos)
             self.profile_grid.set_videos(self.profile_videos, has_more=has_more)
+            self.profile_grid_container.scroll_to_top()
             self.profile_grid_container.refresh_viewport()
         else:
-            self._profile_all_videos.extend(videos)
+            self._profile_all_videos = self._dedupe_videos(self._profile_all_videos + list(videos))
             self.profile_videos = self._apply_video_controls("profile", self._profile_all_videos)
             self.profile_grid.set_videos(self.profile_videos, has_more=has_more)
             self.profile_grid_container.refresh_viewport()
 
-        self._profile_has_more = has_more
-        if has_more:
-            self._next_start = start + len(videos)
+        known_total = None
+        if self.profile and self.profile.video_count is not None:
+            known_total = max(int(self.profile.video_count), len(self._profile_all_videos))
 
-        total_text = "?" if has_more else str(len(self.profile_videos))
-        self.status_var.set(f"Loaded {len(self.profile_videos)} profile video(s). Showing {len(self.profile_videos)}/{total_text}.")
+        self._profile_has_more = has_more
+        if known_total is not None:
+            self._profile_has_more = len(self._profile_all_videos) < known_total
+
+        if self._profile_has_more:
+            self._next_start = start + len(videos)
+        else:
+            self._next_start = max(1, len(self._profile_all_videos) + 1)
+        self._refresh_load_more_button()
+
+        total_text = str(known_total) if known_total is not None else ("?" if self._profile_has_more else str(len(self._profile_all_videos)))
+        shown_count = len(self.profile_videos)
+        self.status_var.set(f"Loaded {shown_count} profile video(s). Showing {shown_count}/{total_text}.")
+        self._sync_platform_state()
+        self._persist_platform_workspace_cache(self.platform_var.get())
         self._save_session_cache()
 
     def on_load_more_profile(self) -> None:
@@ -988,6 +1359,7 @@ class TikTokDownloaderApp:
         self._loading_profile_page = True
         self.profile_grid.show_tail_skeleton(max(2, min(self._page_size // 2, 12)))
         self.profile_loading_more_var.set("Loading more videos...")
+        self._refresh_load_more_button()
         self._set_loading(True)
         self.status_var.set(f"Loading {self._page_size} more profile videos...")
         self._do_search_profile(self._profile_url, self._next_start)
@@ -1063,9 +1435,7 @@ class TikTokDownloaderApp:
 
     def _open_video_details(self, video: Video) -> None:
         if self._video_popup is not None and self._video_popup.winfo_exists():
-            self._video_popup.lift()
-            self._video_popup.focus_force()
-            return
+            self._close_video_popup(self._video_popup)
 
         popup = tk.Toplevel(self.root)
         popup.title("Video Details")
@@ -1094,13 +1464,16 @@ class TikTokDownloaderApp:
         popup._detail_preview_image = None  # type: ignore[attr-defined]
         popup._vlc_instance = None  # type: ignore[attr-defined]
         popup._vlc_player = None  # type: ignore[attr-defined]
+        popup._vlc_media = None  # type: ignore[attr-defined]
         popup._preview_label = preview_label  # type: ignore[attr-defined]
         popup._player_host = player_host  # type: ignore[attr-defined]
         popup._temp_media_path = None  # type: ignore[attr-defined]
         popup._temp_media_dir = None  # type: ignore[attr-defined]
+        popup._prepared_video_id = None  # type: ignore[attr-defined]
         popup._volume_var = tk.IntVar(value=100)  # type: ignore[attr-defined]
         popup._current_media_source = None  # type: ignore[attr-defined]
         popup._playback_state = "idle"  # type: ignore[attr-defined]
+        popup._video = video  # type: ignore[attr-defined]
 
         right = ttk.Frame(top, style="Panel.TFrame")
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -1116,28 +1489,42 @@ class TikTokDownloaderApp:
             justify=tk.LEFT,
         ).pack(anchor="w")
 
+        is_douyin = (video.platform or "").lower() == "douyin"
         stats_rows = [
-            ("Views", format_count(video.view_count) or "-"),
-            ("Likes", format_count(video.like_count) or "-"),
-            ("Comments", format_count(video.comment_count) or "-"),
-            ("Shares", format_count(video.share_count) or "-"),
+            ("Likes", self._format_optional_count(video.like_count)),
+            ("Comments", self._format_optional_count(video.comment_count)),
+            ("Shares", self._format_optional_count(video.share_count)),
             ("Upload date", video.upload_time.strftime("%d-%m-%Y") if video.upload_time else "-"),
             ("Duration", format_duration(video.duration) or "-"),
             ("Author", video.author or video.uploader or "-"),
             ("Music", video.music_title or "-"),
             ("Downloaded", "Yes" if video.is_downloaded else "No"),
         ]
+        if not is_douyin:
+            stats_rows.insert(0, ("Views", self._format_optional_count(video.view_count)))
 
         if video.bookmark_count is not None:
-            stats_rows.insert(4, ("Saves", format_count(video.bookmark_count) or "-"))
+            stats_rows.insert(4, ("Saves", self._format_optional_count(video.bookmark_count)))
 
         for label, value in stats_rows:
             row = ttk.Frame(right, style="Panel.TFrame")
-            row.pack(fill=tk.X, pady=(8 if label == "Views" else 4, 0))
+            row.pack(fill=tk.X, pady=(8 if label in {"Views", "Likes"} else 4, 0))
             ttk.Label(row, text=f"{label}:", style="Muted.TLabel").pack(side=tk.LEFT)
             ttk.Label(
                 row,
                 text=value,
+                background="#ffffff",
+                foreground="#1d2a44",
+                font=("Segoe UI", 10, "bold"),
+            ).pack(side=tk.LEFT, padx=(8, 0))
+
+        if video.image_urls and not video.media_url:
+            row = ttk.Frame(right, style="Panel.TFrame")
+            row.pack(fill=tk.X, pady=(4, 0))
+            ttk.Label(row, text="Type:", style="Muted.TLabel").pack(side=tk.LEFT)
+            ttk.Label(
+                row,
+                text=f"Image gallery ({len(video.image_urls)} images)",
                 background="#ffffff",
                 foreground="#1d2a44",
                 font=("Segoe UI", 10, "bold"),
@@ -1220,19 +1607,19 @@ class TikTokDownloaderApp:
         resume_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=48, height=34)
         resume_slot.grid(row=0, column=2, padx=(0, 8))
         resume_slot.grid_propagate(False)
-        resume_btn = ttk.Button(resume_slot, text="⏵", width=4, style="Secondary.TButton", command=lambda: self._resume_video_playback(popup, watch_status_var))
+        resume_btn = ttk.Button(resume_slot, text="⏯", width=4, style="Secondary.TButton", command=lambda: self._resume_video_playback(popup, watch_status_var))
         resume_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         replay_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=48, height=34)
         replay_slot.grid(row=0, column=3, padx=(0, 8))
         replay_slot.grid_propagate(False)
-        replay_btn = ttk.Button(replay_slot, text="↺", width=4, style="Secondary.TButton", command=lambda: self._replay_video_playback(popup, video, watch_status_var))
+        replay_btn = ttk.Button(replay_slot, text="🔁", width=4, style="Secondary.TButton", command=lambda: self._replay_video_playback(popup, video, watch_status_var))
         replay_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         open_link_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=112, height=34)
         open_link_slot.grid(row=0, column=4)
         open_link_slot.grid_propagate(False)
-        open_link_btn = ttk.Button(open_link_slot, text="Open Link", style="Secondary.TButton", command=lambda: self._open_video_link(video))
+        open_link_btn = ttk.Button(open_link_slot, text="🔗", style="Secondary.TButton", command=lambda: self._open_video_link(video))
         open_link_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         popup._watch_btn = watch_btn  # type: ignore[attr-defined]
@@ -1299,8 +1686,16 @@ class TikTokDownloaderApp:
         status_var: tk.StringVar,
         button: ttk.Button | None = None,
     ) -> None:
+        is_douyin = (video.platform or "").lower() == "douyin" or "douyin.com/" in (video.url or "").lower()
+        if is_douyin:
+            self._watch_douyin_in_browser(video, popup, status_var, button)
+            return
+
         if vlc is None:
             status_var.set("python-vlc is not available. Install dependency and ensure VLC/libvlc is installed.")
+            return
+        if video.image_urls and not video.media_url:
+            status_var.set("This Douyin post is an image gallery, so it can be downloaded but not played as a video.")
             return
 
         popup._playback_state = "preparing"  # type: ignore[attr-defined]
@@ -1311,24 +1706,30 @@ class TikTokDownloaderApp:
 
         def _resolve() -> None:
             source = None
+            error_message = ""
             if video.downloaded_path:
                 local_file = Path(video.downloaded_path)
                 if local_file.exists():
                     source = str(local_file)
             if not source:
                 cached_path = getattr(popup, "_temp_media_path", None)
-                if isinstance(cached_path, str):
+                prepared_video_id = getattr(popup, "_prepared_video_id", None)
+                if isinstance(cached_path, str) and prepared_video_id == video.id:
                     cached_file = Path(cached_path)
                     if cached_file.exists():
                         source = str(cached_file)
             if not source:
                 temp_dir = Path(tempfile.mkdtemp(prefix="dyd_preview_"))
                 try:
-                    service = DownloadService(temp_dir)
-                    source = str(service.download_videos([video])[0])
+                    old_temp_dir = getattr(popup, "_temp_media_dir", None)
+                    if isinstance(old_temp_dir, str) and old_temp_dir:
+                        shutil.rmtree(old_temp_dir, ignore_errors=True)
+                    source = str(self.tiktok_service.download_video(video, temp_dir))
                     popup._temp_media_path = source  # type: ignore[attr-defined]
                     popup._temp_media_dir = str(temp_dir)  # type: ignore[attr-defined]
-                except Exception:
+                    popup._prepared_video_id = video.id  # type: ignore[attr-defined]
+                except Exception as exc:
+                    error_message = str(exc or "")
                     try:
                         shutil.rmtree(temp_dir, ignore_errors=True)
                     except Exception:
@@ -1343,8 +1744,20 @@ class TikTokDownloaderApp:
                 if not source:
                     popup._playback_state = "idle"  # type: ignore[attr-defined]
                     self._update_popup_controls(popup)
-                    status_var.set("Could not prepare a temporary playable copy for this video.")
+                    status_var.set(error_message or "Could not prepare this video.")
                     return
+                source_path = Path(source)
+                if not source_path.exists():
+                    popup._playback_state = "idle"  # type: ignore[attr-defined]
+                    self._update_popup_controls(popup)
+                    status_var.set("The prepared media file was not created.")
+                    return
+                if source_path.is_file() and source_path.stat().st_size == 0:
+                    popup._playback_state = "idle"  # type: ignore[attr-defined]
+                    self._update_popup_controls(popup)
+                    status_var.set("The prepared media file is empty.")
+                    return
+                popup._prepared_video_id = video.id  # type: ignore[attr-defined]
                 self._play_video_in_popup(popup, video, source, status_var)
 
             self.root.after(0, _apply)
@@ -1353,6 +1766,48 @@ class TikTokDownloaderApp:
 
         threading.Thread(target=_resolve, daemon=True).start()
 
+    def _watch_douyin_in_browser(
+        self,
+        video: Video,
+        popup: tk.Toplevel,
+        status_var: tk.StringVar,
+        button: ttk.Button | None = None,
+    ) -> None:
+        popup._playback_state = "preparing"  # type: ignore[attr-defined]
+        self._update_popup_controls(popup)
+        if button is not None:
+            button.configure(state="disabled")
+        status_var.set("Opening this Douyin post in the logged-in browser session...")
+
+        def _open() -> None:
+            error_message = ""
+            try:
+                self.tiktok_service.open_douyin_video_in_browser(video.url or "")
+            except Exception as exc:  # noqa: BLE001
+                error_message = str(exc or "")
+
+            def _apply() -> None:
+                if button is not None:
+                    button.configure(state="normal")
+                if not popup.winfo_exists():
+                    return
+                if error_message:
+                    popup._playback_state = "idle"  # type: ignore[attr-defined]
+                    popup._current_media_source = None  # type: ignore[attr-defined]
+                    self._update_popup_controls(popup)
+                    status_var.set(error_message)
+                    return
+                popup._playback_state = "playing"  # type: ignore[attr-defined]
+                popup._current_media_source = video.url or "douyin-browser"  # type: ignore[attr-defined]
+                self._update_popup_controls(popup)
+                status_var.set("Opened directly in the Douyin browser session.")
+
+            self.root.after(0, _apply)
+
+        import threading
+
+        threading.Thread(target=_open, daemon=True).start()
+
     def _play_video_in_popup(
         self,
         popup: tk.Toplevel,
@@ -1360,7 +1815,6 @@ class TikTokDownloaderApp:
         source: str,
         status_var: tk.StringVar,
     ) -> None:
-        del video
         if vlc is None:
             status_var.set("python-vlc is not available.")
             return
@@ -1387,6 +1841,8 @@ class TikTokDownloaderApp:
             popup.update_idletasks()
             host.update_idletasks()
             media = popup._vlc_instance.media_new(source)  # type: ignore[attr-defined]
+            self._apply_vlc_media_options(media)
+            popup._vlc_media = media  # type: ignore[attr-defined]
             player.set_media(media)
 
             handle = host.winfo_id()
@@ -1398,7 +1854,11 @@ class TikTokDownloaderApp:
                 except Exception:
                     pass
 
-            self._show_player_surface(popup)
+            static_preview_mode = self._should_keep_static_preview(video)
+            if static_preview_mode:
+                self._show_preview_surface(popup)
+            else:
+                self._show_player_surface(popup)
 
             def _start_playback() -> None:
                 try:
@@ -1406,7 +1866,10 @@ class TikTokDownloaderApp:
                     self._apply_popup_volume(popup)
                     popup._playback_state = "playing"  # type: ignore[attr-defined]
                     self._update_popup_controls(popup)
-                    status_var.set("Playing video inside popup.")
+                    if static_preview_mode:
+                        status_var.set("Playing audio while keeping the original image preview.")
+                    else:
+                        status_var.set("Playing video inside popup.")
                 except Exception as exc:
                     popup._playback_state = "idle"  # type: ignore[attr-defined]
                     self._update_popup_controls(popup)
@@ -1418,6 +1881,21 @@ class TikTokDownloaderApp:
             popup._playback_state = "idle"  # type: ignore[attr-defined]
             self._update_popup_controls(popup)
             status_var.set(f"Could not start VLC playback: {exc}")
+
+    @staticmethod
+    def _apply_vlc_media_options(media) -> None:
+        media_options = (
+            ":avcodec-hw=none",
+            ":codec=avcodec",
+            ":vout=wingdi",
+            ":network-caching=1500",
+            ":file-caching=1000",
+        )
+        for option in media_options:
+            try:
+                media.add_option(option)
+            except Exception:
+                continue
 
     def _create_vlc_instance(self):
         if vlc is None:
@@ -1463,6 +1941,10 @@ class TikTokDownloaderApp:
         preview.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
         preview.lift()
 
+    @staticmethod
+    def _should_keep_static_preview(video: Video) -> bool:
+        return (video.platform or "").lower() == "douyin" and bool(video.image_urls)
+
     def _pause_video_playback(self, popup: tk.Toplevel, status_var: tk.StringVar) -> None:
         player = getattr(popup, "_vlc_player", None)
         if player is None:
@@ -1501,15 +1983,11 @@ class TikTokDownloaderApp:
         self._watch_video(video, popup, status_var)
 
     def _stop_video_playback(self, popup: tk.Toplevel, status_var: tk.StringVar) -> None:
-        player = getattr(popup, "_vlc_player", None)
         try:
-            if player is not None:
-                player.stop()
-                try:
-                    player.set_media(None)
-                except Exception:
-                    pass
+            self._teardown_vlc_player(popup)
             popup._current_media_source = None  # type: ignore[attr-defined]
+            popup._playback_state = "idle"  # type: ignore[attr-defined]
+            self._update_popup_controls(popup)
             self._show_preview_surface(popup)
             status_var.set("Playback stopped.")
         except Exception as exc:
@@ -1520,6 +1998,12 @@ class TikTokDownloaderApp:
             self._apply_popup_volume(popup)
         except Exception as exc:
             status_var.set(f"Could not change volume: {exc}")
+
+    @staticmethod
+    def _format_optional_count(value: int | None) -> str:
+        if value is None:
+            return "-"
+        return format_count(value)
 
     def _update_popup_controls(self, popup: tk.Toplevel) -> None:
         watch_btn = getattr(popup, "_watch_btn", None)
@@ -1543,9 +2027,14 @@ class TikTokDownloaderApp:
             replay_btn.configure(state="normal" if has_media else "disabled")
 
     def _save_session_cache(self) -> None:
+        self._sync_platform_state()
+        self._persist_platform_workspace_cache(self.platform_var.get().strip().lower() or "tiktok")
         payload = {
             "platform": self.platform_var.get().strip() or "tiktok",
-            "profile_url": self._profile_url or "",
+            "platform_output_dirs": {
+                name: str(state["output_dir"])
+                for name, state in self._platform_states.items()
+            },
             "page_size": self._page_size,
             "trend_threshold": self._get_trend_threshold(),
             "douyin_backend_enabled": bool(self.douyin_backend_enabled_var.get()),
@@ -1554,33 +2043,83 @@ class TikTokDownloaderApp:
             "douyin_backend_token": self.douyin_backend_token_var.get().strip(),
             "douyin_backend_endpoint": self.douyin_backend_endpoint_var.get().strip(),
             "douyin_backend_command": self.douyin_backend_command_var.get().strip(),
-            "profile": {
-                "username": getattr(self.profile, "username", None),
-                "display_name": getattr(self.profile, "display_name", None),
-                "avatar_url": getattr(self.profile, "avatar_url", None),
-                "follower_count": getattr(self.profile, "follower_count", None),
-                "following_count": getattr(self.profile, "following_count", None),
-                "like_count": getattr(self.profile, "like_count", None),
-                "video_count": getattr(self.profile, "video_count", None),
-            } if self.profile else None,
-            "profile_videos": [video.to_dict() for video in self._profile_all_videos],
-            "multi_links": self._parse_multi_links(),
-            "multi_videos": [video.to_dict() for video in self._multi_all_videos],
-            "active_tab": self._active_mode(),
+            "platform_sessions": {
+                name: self._build_platform_session_payload(state)
+                for name, state in self._platform_states.items()
+            },
         }
-        self.session_cache.save(payload)
+        try:
+            self.session_cache.save(payload)
+        except Exception:
+            pass
+        for name, state in self._platform_states.items():
+            cache = self._workspace_caches.get(name)
+            if cache is None:
+                continue
+            try:
+                cache.save(self._build_platform_session_payload(state))
+            except Exception:
+                continue
+
+    @staticmethod
+    def _build_platform_session_payload(state: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "profile_url": state.get("profile_url") or "",
+            "profile": state.get("profile"),
+            "profile_videos": state.get("profile_videos") or [],
+            "multi_links": state.get("multi_links") or [],
+            "multi_videos": state.get("multi_videos") or [],
+            "active_tab": state.get("active_tab") or "profile",
+            "profile_has_more": bool(state.get("profile_has_more")),
+            "next_start": int(state.get("next_start") or 1),
+        }
+
+    def _persist_platform_workspace_cache(self, platform: str) -> None:
+        platform = "douyin" if str(platform).strip().lower() == "douyin" else "tiktok"
+        state = self._platform_states.get(platform)
+        cache = self._workspace_caches.get(platform)
+        if state is None or cache is None:
+            return
+        try:
+            cache.save(self._build_platform_session_payload(state))
+        except Exception:
+            pass
 
     def _restore_last_session(self) -> None:
         data = self.session_cache.load()
-        if not data:
-            self._update_douyin_login_status()
-            self._show_profile_welcome_state()
-            return
-
         try:
             platform = str(data.get("platform") or "tiktok").strip().lower()
-            self._set_platform(platform, save=False)
-            profile_url = str(data.get("profile_url") or "")
+            output_dirs = data.get("platform_output_dirs") or {}
+            if isinstance(output_dirs, dict):
+                for name, folder in output_dirs.items():
+                    if name in self._platform_states and isinstance(folder, str) and folder.strip():
+                        path = Path(folder)
+                        path.mkdir(parents=True, exist_ok=True)
+                        self._platform_states[name]["output_dir"] = path
+            platform_sessions = data.get("platform_sessions") or {}
+            if isinstance(platform_sessions, dict):
+                for name, session in platform_sessions.items():
+                    if name in self._platform_states and isinstance(session, dict):
+                        self._platform_states[name]["profile_url"] = str(session.get("profile_url") or "")
+                        self._platform_states[name]["profile"] = session.get("profile") if isinstance(session.get("profile"), dict) else None
+                        self._platform_states[name]["profile_videos"] = session.get("profile_videos") if isinstance(session.get("profile_videos"), list) else []
+                        self._platform_states[name]["multi_links"] = session.get("multi_links") if isinstance(session.get("multi_links"), list) else []
+                        self._platform_states[name]["multi_videos"] = session.get("multi_videos") if isinstance(session.get("multi_videos"), list) else []
+                        self._platform_states[name]["active_tab"] = str(session.get("active_tab") or "profile")
+                        self._platform_states[name]["profile_has_more"] = bool(session.get("profile_has_more"))
+                        self._platform_states[name]["next_start"] = int(session.get("next_start") or 1)
+            for name, cache in self._workspace_caches.items():
+                session = cache.load()
+                if not session:
+                    continue
+                self._platform_states[name]["profile_url"] = str(session.get("profile_url") or "")
+                self._platform_states[name]["profile"] = session.get("profile") if isinstance(session.get("profile"), dict) else None
+                self._platform_states[name]["profile_videos"] = session.get("profile_videos") if isinstance(session.get("profile_videos"), list) else []
+                self._platform_states[name]["multi_links"] = session.get("multi_links") if isinstance(session.get("multi_links"), list) else []
+                self._platform_states[name]["multi_videos"] = session.get("multi_videos") if isinstance(session.get("multi_videos"), list) else []
+                self._platform_states[name]["active_tab"] = str(session.get("active_tab") or "profile")
+                self._platform_states[name]["profile_has_more"] = bool(session.get("profile_has_more"))
+                self._platform_states[name]["next_start"] = int(session.get("next_start") or 1)
             page_size = int(data.get("page_size") or 20)
             if page_size in (10, 20, 50):
                 self._page_size = page_size
@@ -1598,75 +2137,49 @@ class TikTokDownloaderApp:
             self.douyin_backend_command_var.set(str(data.get("douyin_backend_command") or "").strip())
             self._apply_douyin_backend_settings(save=False)
             self._update_douyin_login_status()
+            has_legacy_session = any(
+                key in data
+                for key in ("profile_url", "profile", "profile_videos", "multi_links", "multi_videos", "active_tab")
+            )
+            if not platform_sessions and has_legacy_session:
+                legacy_session = {
+                    "profile_url": str(data.get("profile_url") or ""),
+                    "profile": data.get("profile") if isinstance(data.get("profile"), dict) else None,
+                    "profile_videos": data.get("profile_videos") if isinstance(data.get("profile_videos"), list) else [],
+                    "multi_links": data.get("multi_links") if isinstance(data.get("multi_links"), list) else [],
+                    "multi_videos": data.get("multi_videos") if isinstance(data.get("multi_videos"), list) else [],
+                    "active_tab": str(data.get("active_tab") or "profile"),
+                    "profile_has_more": False,
+                    "next_start": 1,
+                }
+                self._platform_states[platform].update(legacy_session)
+            self._set_platform(platform, save=False, sync_current=False)
             self._apply_trend_threshold()
 
-            if profile_url:
-                self._profile_url = profile_url
-                self.profile_url_input.set(profile_url)
-
-            profile_data = data.get("profile")
-            if isinstance(profile_data, dict):
-                self.profile = Profile(
-                    username=profile_data.get("username") or "",
-                    display_name=profile_data.get("display_name") or "",
-                    avatar_url=profile_data.get("avatar_url") or "",
-                    follower_count=profile_data.get("follower_count"),
-                    following_count=profile_data.get("following_count"),
-                    like_count=profile_data.get("like_count"),
-                    video_count=profile_data.get("video_count"),
-                )
-                self._update_profile_header()
-
-            profile_rows = data.get("profile_videos") or []
-            if isinstance(profile_rows, list):
-                self._profile_all_videos = [Video.from_dict(row) for row in profile_rows if isinstance(row, dict)]
-                self.history_service.apply_status(self._profile_all_videos)
-                self.profile_videos = self._apply_video_controls("profile", self._profile_all_videos)
-                if self.profile_videos:
-                    self.profile_grid.set_videos(self.profile_videos, has_more=False)
-                    self.profile_grid_container.refresh_viewport()
-
-            multi_links = data.get("multi_links") or []
-            if isinstance(multi_links, list) and multi_links:
-                self.multi_links_text.delete("1.0", tk.END)
-                self.multi_links_text.insert("1.0", "\n".join(str(link) for link in multi_links))
-
-            multi_rows = data.get("multi_videos") or []
-            if isinstance(multi_rows, list):
-                self._multi_all_videos = [Video.from_dict(row) for row in multi_rows if isinstance(row, dict)]
-                self.history_service.apply_status(self._multi_all_videos)
-                self.multi_videos = self._apply_video_controls("multi", self._multi_all_videos)
-                if self.multi_videos:
-                    self.multi_grid.set_videos(self.multi_videos, has_more=False)
-                    self.multi_grid_container.refresh_viewport()
-
-            active_tab = str(data.get("active_tab") or "profile")
-            if self.platform_var.get().strip().lower() == "douyin":
-                if active_tab in {"downloads", "downloaded"}:
-                    self.notebook.select(self.downloads_tab)
-                else:
-                    self.notebook.select(self.multi_tab)
-            elif active_tab == "multi":
-                self.notebook.select(self.multi_tab)
-            elif active_tab in {"downloads", "downloaded"}:
-                self.notebook.select(self.downloads_tab)
-            else:
-                self.notebook.select(self.profile_tab)
-
-            if self.profile_videos or self.multi_videos:
+            if self.profile_videos or self.multi_videos or self._profile_url:
                 self.status_var.set("Restored the last session from local cache.")
         except Exception:
-            self.status_var.set("Could not restore the last session cache.")
             self._update_douyin_login_status()
+            fallback_platform = self.platform_var.get().strip().lower() or "tiktok"
+            self._set_platform(fallback_platform, save=False, sync_current=False)
             self._show_profile_welcome_state()
+            self.status_var.set("Could not fully restore the last session cache.")
 
     def _on_app_close(self) -> None:
+        try:
+            self._save_session_cache()
+        except Exception:
+            pass
         popup = self._video_popup
         if popup is not None and popup.winfo_exists():
             self._close_video_popup(popup)
         settings_popup = self._settings_popup
         if settings_popup is not None and settings_popup.winfo_exists():
             self._close_settings_popup()
+        try:
+            self.tiktok_service.close()
+        except Exception:
+            pass
         self.root.destroy()
 
     def _apply_popup_volume(self, popup: tk.Toplevel) -> None:
@@ -1686,22 +2199,14 @@ class TikTokDownloaderApp:
     def _close_video_popup(self, popup: tk.Toplevel) -> None:
         if self._video_popup is popup:
             self._video_popup = None
-        player = getattr(popup, "_vlc_player", None)
-        if player is not None:
-            try:
-                player.stop()
-            except Exception:
-                pass
-            try:
-                player.release()
-            except Exception:
-                pass
-        instance = getattr(popup, "_vlc_instance", None)
-        if instance is not None:
-            try:
-                instance.release()
-            except Exception:
-                pass
+        try:
+            popup.withdraw()
+        except Exception:
+            pass
+        try:
+            self._teardown_vlc_player(popup)
+        except Exception:
+            pass
         temp_dir = getattr(popup, "_temp_media_dir", None)
         if isinstance(temp_dir, str) and temp_dir:
             try:
@@ -1712,7 +2217,48 @@ class TikTokDownloaderApp:
             popup.grab_release()
         except Exception:
             pass
-        popup.destroy()
+        self.root.after(120, lambda: popup.winfo_exists() and popup.destroy())
+
+    def _teardown_vlc_player(self, popup: tk.Toplevel) -> None:
+        player = getattr(popup, "_vlc_player", None)
+        media = getattr(popup, "_vlc_media", None)
+        instance = getattr(popup, "_vlc_instance", None)
+        if player is not None:
+            try:
+                player.audio_set_volume(0)
+            except Exception:
+                pass
+            try:
+                player.stop()
+            except Exception:
+                pass
+            try:
+                if os.name == "nt":
+                    player.set_hwnd(0)
+            except Exception:
+                pass
+            try:
+                player.set_media(None)
+            except Exception:
+                pass
+        if media is not None:
+            try:
+                media.release()
+            except Exception:
+                pass
+        if player is not None:
+            try:
+                player.release()
+            except Exception:
+                pass
+        if instance is not None:
+            try:
+                instance.release()
+            except Exception:
+                pass
+        popup._vlc_media = None  # type: ignore[attr-defined]
+        popup._vlc_player = None  # type: ignore[attr-defined]
+        popup._vlc_instance = None  # type: ignore[attr-defined]
 
     @staticmethod
     def _open_video_link(video: Video) -> None:
@@ -1748,8 +2294,18 @@ class TikTokDownloaderApp:
             messagebox.showinfo("No Selection", "Select at least one video to queue.")
             return
 
+        self._queue_videos(selected)
+
+    def _queue_single_video(self, video: Video) -> None:
+        self._queue_videos([video])
+
+    def _queue_videos(self, videos: List[Video]) -> None:
+        if not videos:
+            return
+
         target_dir = self.output_dir
         profile_username: str | None = None
+        mode = self._active_mode()
         if mode == "profile" and self.profile and self.profile.username:
             profile_username = self.profile.username
             target_dir = self.output_dir / self._safe_folder_name(profile_username)
@@ -1759,7 +2315,7 @@ class TikTokDownloaderApp:
             (str(item.get("video_id") or ""), str(item.get("url") or ""))
             for item in self._download_queue
         }
-        for video in selected:
+        for video in videos:
             key = ((video.id or "").strip(), (video.url or "").strip())
             if key in existing_keys:
                 continue
@@ -1768,7 +2324,7 @@ class TikTokDownloaderApp:
                 "video": video,
                 "video_id": video.id,
                 "url": video.url,
-                "title": video.title or "Untitled",
+                "title": self._short_title(video.title or "Untitled"),
                 "profile_username": profile_username or "",
                 "target_dir": target_dir,
                 "status": "Queued",
@@ -1853,7 +2409,6 @@ class TikTokDownloaderApp:
     @run_in_thread
     def _process_queue_item(self, queue_item: dict[str, Any]) -> None:
         target_dir = Path(queue_item["target_dir"])
-        service = DownloadService(target_dir)
         video = queue_item["video"]
 
         def _hook(data: dict) -> None:
@@ -1867,7 +2422,7 @@ class TikTokDownloaderApp:
                 self.root.after(0, lambda: self._update_queue_progress(str(queue_item["queue_id"]), 100.0))
 
         try:
-            path = service.download_video(video, progress_hook=_hook)
+            path = self.tiktok_service.download_video(video, target_dir, progress_hook=_hook)
         except Exception as exc:  # noqa: BLE001
             self.root.after(0, lambda exc=exc: self._handle_queue_item_error(str(queue_item["queue_id"]), exc))
             return
@@ -1911,18 +2466,39 @@ class TikTokDownloaderApp:
             profile_username=str(item.get("profile_username") or "") or None,
         )
 
+        self._mark_video_downloaded(item["video"], path)
         self.history_service.apply_status(self._profile_all_videos)
         self.history_service.apply_status(self._multi_all_videos)
-        self.profile_videos = self._apply_video_controls("profile", self._profile_all_videos)
-        self.multi_videos = self._apply_video_controls("multi", self._multi_all_videos)
-        self.profile_grid.set_videos(self.profile_videos, has_more=self._profile_has_more)
-        self.multi_grid.set_videos(self.multi_videos, has_more=False)
         self._refresh_downloaded_tab()
         self._save_session_cache()
         self._queue_running = False
         self._refresh_queue_tab()
         self.status_var.set(f"Downloaded: {item.get('title') or 'Video'}")
+        if not any(str(entry.get("status")) == "Queued" for entry in self._download_queue):
+            self._refresh_video_tables_after_queue()
         self._start_download_queue()
+
+    def _mark_video_downloaded(self, video: Video, path: Path) -> None:
+        target_key = self._video_identity(video)
+        for source in (self._profile_all_videos, self._multi_all_videos):
+            for row in source:
+                if self._video_identity(row) != target_key:
+                    continue
+                row.is_downloaded = True
+                row.downloaded_path = str(path)
+
+    def _refresh_video_tables_after_queue(self) -> None:
+        self.profile_videos = self._apply_video_controls("profile", self._profile_all_videos)
+        self.multi_videos = self._apply_video_controls("multi", self._multi_all_videos)
+        self.profile_grid.set_videos(self.profile_videos, has_more=self._profile_has_more)
+        self.multi_grid.set_videos(self.multi_videos, has_more=False)
+
+    @staticmethod
+    def _short_title(text: str, max_length: int = 56) -> str:
+        compact = " ".join(str(text or "").split())
+        if len(compact) <= max_length:
+            return compact or "Untitled"
+        return compact[: max_length - 3].rstrip() + "..."
 
     def _find_queue_item(self, queue_id: str) -> dict[str, Any] | None:
         for item in self._download_queue:
