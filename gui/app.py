@@ -416,10 +416,10 @@ class TikTokDownloaderApp:
         )
         self.search_load_more_btn.pack(side=tk.LEFT)
 
-        options_panel = ttk.Frame(self.search_tab, padding=(10, 0, 10, 6), style="Panel.TFrame")
-        self.search_options_label = ttk.Label(options_panel, text="Search Options (Before Fetch)", style="Muted.TLabel")
-        self.search_options_rednote = ttk.Frame(options_panel, style="Panel.TFrame")
-        self.search_options_douyin = ttk.Frame(options_panel, style="Panel.TFrame")
+        self.search_options_panel = ttk.Frame(self.search_tab, padding=(10, 0, 10, 6), style="Panel.TFrame")
+        self.search_options_label = ttk.Label(self.search_options_panel, text="Search Options (Before Fetch)", style="Muted.TLabel")
+        self.search_options_rednote = ttk.Frame(self.search_options_panel, style="Panel.TFrame")
+        self.search_options_douyin = ttk.Frame(self.search_options_panel, style="Panel.TFrame")
 
         self.search_sort_var = tk.StringVar(value="Comprehensive")
         self.search_type_var = tk.StringVar(value="All")
@@ -453,8 +453,6 @@ class TikTokDownloaderApp:
         ).pack(side=tk.LEFT, padx=(6, 0))
 
         self.search_douyin_mode_var = tk.StringVar(value="Standard")
-        self.search_douyin_sort_var = tk.StringVar(value="Comprehensive")
-        self.search_douyin_time_var = tk.StringVar(value="All")
 
         ttk.Label(self.search_options_douyin, text="Mode", style="Muted.TLabel").pack(side=tk.LEFT, padx=(12, 0))
         ttk.Combobox(
@@ -465,23 +463,6 @@ class TikTokDownloaderApp:
             values=("Standard", "Jingxuan"),
         ).pack(side=tk.LEFT, padx=(6, 10))
 
-        ttk.Label(self.search_options_douyin, text="Sort", style="Muted.TLabel").pack(side=tk.LEFT)
-        ttk.Combobox(
-            self.search_options_douyin,
-            textvariable=self.search_douyin_sort_var,
-            state="readonly",
-            width=14,
-            values=("Comprehensive", "Newest", "Most Liked", "Most Commented"),
-        ).pack(side=tk.LEFT, padx=(6, 10))
-
-        ttk.Label(self.search_options_douyin, text="Publish Time", style="Muted.TLabel").pack(side=tk.LEFT)
-        ttk.Combobox(
-            self.search_options_douyin,
-            textvariable=self.search_douyin_time_var,
-            state="readonly",
-            width=12,
-            values=("All", "Past 24 hours", "Past week", "Past 6 months"),
-        ).pack(side=tk.LEFT, padx=(6, 0))
 
         ttk.Label(
             self.search_tab,
@@ -996,10 +977,6 @@ class TikTokDownloaderApp:
                 elif platform == "douyin":
                     if hasattr(self, "search_douyin_mode_var"):
                         self.search_douyin_mode_var.set(self._normalize_search_label(str(search_options.get("mode") or "Standard"), "mode"))
-                    if hasattr(self, "search_douyin_sort_var"):
-                        self.search_douyin_sort_var.set(self._normalize_search_label(str(search_options.get("sort_label") or "Comprehensive"), "sort"))
-                    if hasattr(self, "search_douyin_time_var"):
-                        self.search_douyin_time_var.set(self._normalize_search_label(str(search_options.get("time_label") or "All"), "time"))
             except Exception:
                 pass
         self._search_offset = int(state.get("search_offset") or 0)
@@ -1166,6 +1143,15 @@ class TikTokDownloaderApp:
             self.search_options_rednote.pack_forget()
         if hasattr(self, "search_options_douyin") and self.search_options_douyin.winfo_manager():
             self.search_options_douyin.pack_forget()
+        if hasattr(self, "search_options_panel") and self.search_options_panel.winfo_manager():
+            self.search_options_panel.pack_forget()
+        if is_douyin:
+            if hasattr(self, "search_options_panel"):
+                self.search_options_panel.pack(side=tk.TOP, fill=tk.X)
+            if hasattr(self, "search_options_label"):
+                self.search_options_label.pack(side=tk.LEFT)
+            if hasattr(self, "search_options_douyin"):
+                self.search_options_douyin.pack(side=tk.LEFT)
 
     def _refresh_search_keyword_ui(self, is_xhs: bool) -> None:
         if not hasattr(self, "search_keyword_input"):
@@ -1944,7 +1930,12 @@ class TikTokDownloaderApp:
         return f"https://www.tiktok.com/search?q={term}"
 
     def _build_search_options(self) -> dict[str, Any]:
-        return {}
+        platform = self.platform_var.get().strip().lower()
+        if platform != "douyin":
+            return {}
+        return {
+            "mode": self.search_douyin_mode_var.get().strip(),
+        }
 
     def _normalize_search_label(self, value: str, kind: str) -> str:
         mappings = {

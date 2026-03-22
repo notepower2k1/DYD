@@ -269,22 +269,6 @@ class DouyinLocalService:
             "list_type": "multi",
             "search_id": str(options.get("search_id") or ""),
         }
-        filter_selected: dict[str, Any] = {}
-        sort_type = options.get("sort_type")
-        publish_time = options.get("publish_time")
-        duration = options.get("duration")
-        scope = options.get("scope")
-        if sort_type not in (None, 0):
-            filter_selected["sort_type"] = sort_type
-        if publish_time not in (None, 0):
-            filter_selected["publish_time"] = publish_time
-        if duration:
-            filter_selected["duration"] = duration
-        if filter_selected:
-            query_params["filter_selected"] = json.dumps(filter_selected, ensure_ascii=False)
-            query_params["is_filter_search"] = 1
-        if scope:
-            query_params["search_scope"] = scope
         safe_term = quote(term)
         mode = str(options.get("mode") or "Standard")
         if mode == "Jingxuan":
