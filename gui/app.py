@@ -408,10 +408,7 @@ class TikTokDownloaderApp:
         self.search_load_more_btn.pack(side=tk.LEFT)
 
         options_panel = ttk.Frame(self.search_tab, padding=(10, 0, 10, 6), style="Panel.TFrame")
-        options_panel.pack(side=tk.TOP, fill=tk.X)
         self.search_options_label = ttk.Label(options_panel, text="Search Options (Before Fetch)", style="Muted.TLabel")
-        self.search_options_label.pack(side=tk.LEFT)
-
         self.search_options_rednote = ttk.Frame(options_panel, style="Panel.TFrame")
         self.search_options_douyin = ttk.Frame(options_panel, style="Panel.TFrame")
 
@@ -1153,29 +1150,12 @@ class TikTokDownloaderApp:
                     views_entry.pack(side=tk.LEFT, padx=(6, 10))
 
     def _refresh_search_options_ui(self, is_douyin: bool, is_xhs: bool) -> None:
-        if hasattr(self, "search_options_label"):
-            if is_douyin or is_xhs:
-                if not self.search_options_label.winfo_manager():
-                    self.search_options_label.pack(side=tk.LEFT)
-            else:
-                if self.search_options_label.winfo_manager():
-                    self.search_options_label.pack_forget()
-
-        if hasattr(self, "search_options_rednote"):
-            if is_xhs:
-                if not self.search_options_rednote.winfo_manager():
-                    self.search_options_rednote.pack(side=tk.LEFT)
-            else:
-                if self.search_options_rednote.winfo_manager():
-                    self.search_options_rednote.pack_forget()
-
-        if hasattr(self, "search_options_douyin"):
-            if is_douyin:
-                if not self.search_options_douyin.winfo_manager():
-                    self.search_options_douyin.pack(side=tk.LEFT)
-            else:
-                if self.search_options_douyin.winfo_manager():
-                    self.search_options_douyin.pack_forget()
+        if hasattr(self, "search_options_label") and self.search_options_label.winfo_manager():
+            self.search_options_label.pack_forget()
+        if hasattr(self, "search_options_rednote") and self.search_options_rednote.winfo_manager():
+            self.search_options_rednote.pack_forget()
+        if hasattr(self, "search_options_douyin") and self.search_options_douyin.winfo_manager():
+            self.search_options_douyin.pack_forget()
 
     def _active_mode(self) -> str:
         current = self.notebook.select()
@@ -1885,48 +1865,6 @@ class TikTokDownloaderApp:
         return f"https://www.tiktok.com/search?q={term}"
 
     def _build_search_options(self) -> dict[str, Any]:
-        platform = self.platform_var.get().strip().lower()
-        time_map = {
-            "All": 0,
-            "Past 24 hours": 1,
-            "Past week": 7,
-            "Past 6 months": 180,
-        }
-        if platform == "xhs":
-            sort_value_map = {
-                "Comprehensive": "general",
-                "Newest": "time_descending",
-                "Most Liked": "popularity_descending",
-                "Most Commented": "comment_descending",
-                "Most Collected": "collect_descending",
-            }
-            note_type_map = {
-                "All": 0,
-                "Video": 1,
-                "Image": 2,
-            }
-            return {
-                "sort_label": self.search_sort_var.get().strip(),
-                "note_type_label": self.search_type_var.get().strip(),
-                "time_label": self.search_time_var.get().strip(),
-                "sort": sort_value_map.get(self.search_sort_var.get().strip(), "general"),
-                "note_type": note_type_map.get(self.search_type_var.get().strip(), 0),
-                "publish_time": time_map.get(self.search_time_var.get().strip(), 0),
-            }
-        if platform == "douyin":
-            sort_type_map = {
-                "Comprehensive": 0,
-                "Newest": 2,
-                "Most Liked": 1,
-                "Most Commented": 3,
-            }
-            return {
-                "mode": self.search_douyin_mode_var.get().strip(),
-                "sort_label": self.search_douyin_sort_var.get().strip(),
-                "time_label": self.search_douyin_time_var.get().strip(),
-                "sort_type": sort_type_map.get(self.search_douyin_sort_var.get().strip(), 0),
-                "publish_time": time_map.get(self.search_douyin_time_var.get().strip(), 0),
-            }
         return {}
 
     def _normalize_search_label(self, value: str, kind: str) -> str:
