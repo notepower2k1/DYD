@@ -29,6 +29,7 @@ class XhsLocalService:
     _SEARCH_API = "/api/sns/web/v1/search/notes"
     _FEED_API = "/api/sns/web/v1/feed"
     _USER_POST_API = "/api/sns/web/v1/user_posted"
+    _USER_OTHERINFO_API = "/api/sns/web/v1/user/otherinfo"
     _SELF_API = "/api/sns/web/v1/user/selfinfo"
     _USER_ME_API = "/api/sns/web/v2/user/me"
 
@@ -732,6 +733,26 @@ class XhsLocalService:
         has_more = True
         profile = await self._profile_from_creator_page(page, user_id, xsec_token, xsec_source)
 
+        def _profile_from_post_payload(payload: dict[str, Any]) -> Profile | None:
+            if not isinstance(payload, dict):
+                return None
+            candidates: list[dict[str, Any]] = []
+            for key in ("user", "user_info", "userInfo", "user_page", "userPage", "userData", "user_data"):
+                value = payload.get(key)
+                if isinstance(value, dict):
+                    candidates.append(value)
+            data_section = payload.get("data")
+            if isinstance(data_section, dict):
+                for key in ("user", "user_info", "userInfo", "userPageData", "user_page_data"):
+                    value = data_section.get(key)
+                    if isinstance(value, dict):
+                        candidates.append(value)
+            for candidate in candidates:
+                profile = self._profile_from_user_info(candidate, user_id)
+                if profile is not None:
+                    return profile
+            return None
+
         while len(collected) < target_count and has_more:
             try:
                 payload = await self._request_user_posts(page, user_id, cursor, target_count, xsec_token, xsec_source)
@@ -739,7 +760,23 @@ class XhsLocalService:
             except Exception as exc:
                 self._debug("profile.user_posted_error", cursor=cursor, error=str(exc))
                 payload = {}
+            if profile is None:
+                profile = _profile_from_post_payload(payload)
             notes = payload.get("notes") if isinstance(payload, dict) else None
+            if profile is None and isinstance(notes, list) and notes:
+                first_note = notes[0] if isinstance(notes[0], dict) else None
+                if isinstance(first_note, dict):
+                    user_card = first_note.get("user") or (first_note.get("note") or {}).get("user")
+                    if isinstance(user_card, dict):
+                        profile = self._profile_from_user_info({"user": user_card}, user_id)
+            if profile is not None and not profile.avatar_url and isinstance(notes, list) and notes:
+                first_note = notes[0] if isinstance(notes[0], dict) else None
+                if isinstance(first_note, dict):
+                    user_card = first_note.get("user") or (first_note.get("note") or {}).get("user")
+                    if isinstance(user_card, dict):
+                        avatar = user_card.get("avatar") or user_card.get("avatar_url")
+                        if avatar:
+                            profile.avatar_url = str(avatar)
             notes_missing_ids = False
             if isinstance(notes, list) and notes:
                 sample = notes[0]
@@ -1882,6 +1919,10 @@ class XhsLocalService:
         xsec_token: str,
         xsec_source: str,
     ) -> Profile | None:
+        profile = await self._request_other_info(page, user_id, xsec_token, xsec_source)
+        if profile is not None:
+            return profile
+
         profile = await self._request_profile_from_html(page, user_id, xsec_token, xsec_source)
         if profile is not None:
             return profile
@@ -1904,6 +1945,83 @@ class XhsLocalService:
         if not isinstance(user_data, dict):
             return None
         return self._profile_from_user_info(user_data, user_id)
+
+    async def _request_other_info(
+        self,
+        page: Page,
+        user_id: str,
+        xsec_token: str,
+        xsec_source: str,
+    ) -> Profile | None:
+        params = {
+            "target_user_id": user_id,
+            "xsec_token": xsec_token or "",
+            "xsec_source": xsec_source or "pc_note",
+        }
+        try:
+            payload = await self._signed_get(page, self._USER_OTHERINFO_API, params)
+        except Exception as exc:
+            self._debug("profile.otherinfo_error", error=str(exc))
+            return None
+        if not isinstance(payload, dict):
+            return None
+        data_section = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        user_info = None
+        if isinstance(data_section, dict):
+            user_info = (
+                data_section.get("user_info")
+                or data_section.get("userInfo")
+                or data_section.get("user")
+                or data_section.get("target_user")
+            )
+        if not isinstance(user_info, dict):
+            user_info = payload.get("user") if isinstance(payload.get("user"), dict) else payload
+        if not isinstance(user_info, dict):
+            return None
+
+        # Normalize otherinfo payload into a shape that _profile_from_user_info can understand.
+        basic = user_info.get("basic_info") if isinstance(user_info.get("basic_info"), dict) else None
+        stats = (
+            user_info.get("interaction_info")
+            or user_info.get("interact_info")
+            or user_info.get("interactions")
+            or user_info.get("stats")
+            or user_info.get("stat")
+            or {}
+        )
+        normalized = {"user": basic or user_info}
+        if isinstance(stats, dict):
+            normalized["interact_info"] = stats
+        elif isinstance(stats, list):
+            # Convert interactions list into a stats dict.
+            mapped: dict[str, Any] = {}
+            for item in stats:
+                if not isinstance(item, dict):
+                    continue
+                item_type = str(item.get("type") or "").lower()
+                count = item.get("count")
+                if item_type in {"fans", "follower", "followers"}:
+                    mapped["follower_count"] = count
+                elif item_type in {"follow", "follows", "following"}:
+                    mapped["following_count"] = count
+                elif item_type in {"interaction", "interactions", "like", "liked"}:
+                    mapped["liked_count"] = count
+            if mapped:
+                normalized["interact_info"] = mapped
+
+        try:
+            self._debug(
+                "profile.otherinfo_keys",
+                data_keys=list(data_section.keys())[:12] if isinstance(data_section, dict) else [],
+                user_keys=list(user_info.keys())[:12],
+            )
+        except Exception:
+            pass
+
+        profile = self._profile_from_user_info(normalized, user_id)
+        if profile is not None:
+            self._debug("profile.otherinfo", user_id=user_id)
+        return profile
 
     async def _request_note_detail(self, page: Page, note_id: str, xsec_source: str, xsec_token: str) -> dict[str, Any]:
         payload = {
@@ -2441,15 +2559,70 @@ class XhsLocalService:
         user = user_info.get("user") or user_info
         if not isinstance(user, dict):
             return None
-        stats = user_info.get("interact_info") or user_info.get("stats") or {}
+        stats = user_info.get("interact_info") or user_info.get("stats") or user_info.get("interactions") or {}
+        if isinstance(user_info.get("data"), dict):
+            stats = stats or user_info["data"].get("interact_info") or user_info["data"].get("stats") or user_info["data"].get("interactions") or {}
+        if isinstance(stats, list):
+            mapped: dict[str, Any] = {}
+            for item in stats:
+                if not isinstance(item, dict):
+                    continue
+                item_type = str(item.get("type") or "").lower()
+                count = item.get("count")
+                if item_type in {"fans", "follower", "followers"}:
+                    mapped["follower_count"] = count
+                elif item_type in {"follow", "follows", "following"}:
+                    mapped["following_count"] = count
+                elif item_type in {"interaction", "interactions", "like", "liked"}:
+                    mapped["liked_count"] = count
+            stats = mapped
+        def _pick_int(*values: Any) -> int | None:
+            for value in values:
+                parsed = self._to_int(value)
+                if parsed is not None:
+                    return parsed
+            return None
         return Profile(
             username=str(user.get("user_id") or user.get("id") or user_id),
-            display_name=user.get("nickname") or user.get("name") or None,
-            avatar_url=user.get("avatar") or user.get("avatar_url") or None,
-            follower_count=self._to_int(stats.get("follower_count") or user.get("follower_count")),
-            following_count=self._to_int(stats.get("following_count") or user.get("following_count")),
-            like_count=self._to_int(stats.get("liked_count") or user.get("liked_count")),
-            video_count=self._to_int(stats.get("note_count") or user.get("note_count")),
+            display_name=user.get("nickname") or user.get("nick_name") or user.get("name") or None,
+            avatar_url=(
+                user.get("avatar")
+                or user.get("avatar_url")
+                or user.get("image")
+                or user.get("images")
+                or user.get("imageb")
+                or None
+            ),
+            follower_count=_pick_int(
+                stats.get("follower_count"),
+                stats.get("fans_count"),
+                stats.get("fans"),
+                user.get("follower_count"),
+                user.get("fans_count"),
+                user.get("fans"),
+            ),
+            following_count=_pick_int(
+                stats.get("following_count"),
+                stats.get("followings"),
+                user.get("following_count"),
+                user.get("followings"),
+            ),
+            like_count=_pick_int(
+                stats.get("liked_count"),
+                stats.get("like_count"),
+                stats.get("liked"),
+                user.get("liked_count"),
+                user.get("like_count"),
+                user.get("liked"),
+            ),
+            video_count=_pick_int(
+                stats.get("note_count"),
+                stats.get("notes_count"),
+                stats.get("posted_count"),
+                user.get("note_count"),
+                user.get("notes_count"),
+                user.get("posted_count"),
+            ),
         )
 
     def _profile_from_note(self, video: Video) -> Profile | None:
