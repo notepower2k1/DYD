@@ -2653,7 +2653,7 @@ class TikTokDownloaderApp:
         watch_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=106, height=36)
         watch_slot.grid(row=0, column=0, padx=(0, 8))
         watch_slot.grid_propagate(False)
-        watch_btn = ttk.Button(watch_slot, text="Prepare", style="Primary.TButton")
+        watch_btn = ttk.Button(watch_slot, text="Preview", style="Primary.TButton")
         watch_btn.configure(command=lambda: self._watch_video(video, popup, watch_status_var, watch_btn))
         watch_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
