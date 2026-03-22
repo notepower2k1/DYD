@@ -790,6 +790,12 @@ class TikTokDownloaderApp:
             style="Secondary.TButton",
             command=self._cancel_download_queue,
         ).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(
+            queue_actions,
+            text="Remove Selected",
+            style="Secondary.TButton",
+            command=self._remove_selected_queue_items,
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
         self.queue_progress_var = tk.DoubleVar(value=0.0)
         self.queue_progress = ttk.Progressbar(queue_panel, maximum=100, variable=self.queue_progress_var)
@@ -3627,6 +3633,30 @@ class TikTokDownloaderApp:
         self._queue_running = False
         self._refresh_queue_tab()
         self.status_var.set("Download queue cancelled.")
+
+    def _remove_selected_queue_items(self) -> None:
+        if not self._download_queue:
+            self.status_var.set("Download queue is empty.")
+            return
+
+        removable = [
+            item
+            for item in self._download_queue
+            if bool(item.get("selected", True)) and str(item.get("status")) != "Downloading"
+        ]
+        if not removable:
+            self.status_var.set("No removable queue items are selected.")
+            return
+
+        removed_count = len(removable)
+        self._download_queue = [
+            item
+            for item in self._download_queue
+            if not (bool(item.get("selected", True)) and str(item.get("status")) != "Downloading")
+        ]
+        self._refresh_queue_tab()
+        self._save_session_cache()
+        self.status_var.set(f"Removed {removed_count} queue item(s).")
         self._save_session_cache()
 
     @staticmethod
