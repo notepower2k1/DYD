@@ -11,12 +11,13 @@ class LabeledEntry(ttk.Frame):
         placeholder: str | None = None,
         **kwargs,
     ) -> None:
+        kwargs.setdefault("style", "Panel.TFrame")
         super().__init__(master, **kwargs)
-        self.label = ttk.Label(self, text=text)
+        self.label = ttk.Label(self, text=text, style="Muted.TLabel")
         self.entry_var = tk.StringVar()
-        self.entry = ttk.Entry(self, textvariable=self.entry_var)
+        self.entry = ttk.Entry(self, textvariable=self.entry_var, style="App.TEntry")
 
-        self.label.pack(side=tk.TOP, anchor=tk.W, padx=2, pady=(0, 2))
+        self.label.pack(side=tk.TOP, anchor=tk.W, padx=2, pady=(0, 4))
         self.entry.pack(side=tk.TOP, fill=tk.X, expand=True)
 
         if placeholder:
@@ -36,9 +37,10 @@ class PrimaryButton(ttk.Button):
 
 class ScrollableFrame(ttk.Frame):
     def __init__(self, master: tk.Misc, **kwargs) -> None:
+        kwargs.setdefault("style", "Panel.TFrame")
         super().__init__(master, **kwargs)
 
-        canvas = tk.Canvas(self, borderwidth=0, highlightthickness=0, bg="#ffffff")
+        canvas = tk.Canvas(self, borderwidth=0, highlightthickness=0, bg="#fffdfa")
         v_scroll = ttk.Scrollbar(self, orient="vertical")
         self._inner = ttk.Frame(canvas, style="Panel.TFrame")
 

@@ -6,7 +6,7 @@ from gui.app import TikTokDownloaderApp
 def main() -> None:
     root = tk.Tk()
     app = TikTokDownloaderApp(root)
-    root.title("TikTok Multi Video Downloader")
+    root.title("DYD Workspace")
     # Open maximized and keep a fixed window size.
     try:
         root.state("zoomed")  # Windows

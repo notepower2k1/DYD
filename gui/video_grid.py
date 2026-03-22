@@ -16,8 +16,8 @@ from utils.trend import get_trend_level, get_video_trend_score
 class _VideoTableRow(ttk.Frame):
     _PREVIEW_W = 56
     _PREVIEW_H = 100
-    _PREVIEW_BG = "#121826"
-    _PREVIEW_BORDER = "#2b3345"
+    _PREVIEW_BG = "#182531"
+    _PREVIEW_BORDER = "#31485d"
 
     def __init__(
         self,
@@ -31,7 +31,7 @@ class _VideoTableRow(ttk.Frame):
         on_quick_download: Optional[Callable[[Video], None]],
         **kwargs,
     ) -> None:
-        super().__init__(master, style="Panel.TFrame", padding=(6, 4), **kwargs)
+        super().__init__(master, style="Panel.TFrame", padding=(8, 6), **kwargs)
         self.video = video
         self._on_toggle = on_toggle
         self._on_bookmark = on_bookmark
@@ -82,7 +82,9 @@ class _VideoTableRow(ttk.Frame):
         ttk.Label(
             self,
             text=self._format_metric(metric_value),
-            style="Muted.TLabel",
+            background="#fffdfa",
+            foreground="#1f3347",
+            font=("Segoe UI Semibold", 10),
             anchor="w",
             justify=tk.LEFT,
         ).grid(row=0, column=2, padx=(0, 10), sticky="w")
@@ -91,14 +93,17 @@ class _VideoTableRow(ttk.Frame):
         ttk.Label(
             self,
             text=media_type,
-            style="Muted.TLabel",
+            background="#fffdfa",
+            foreground="#6c7b88",
+            font=("Segoe UI Semibold", 9),
             anchor="center",
         ).grid(row=0, column=3, padx=(0, 10), sticky="w")
 
         ttk.Label(
             self,
             text=video.upload_time.strftime("%d-%m-%Y") if video.upload_time else "-",
-            style="Muted.TLabel",
+            background="#fffdfa",
+            foreground="#6c7b88",
             anchor="w",
         ).grid(row=0, column=4, padx=(0, 10), sticky="w")
 
@@ -115,10 +120,10 @@ class _VideoTableRow(ttk.Frame):
         self._bookmarked = tk.BooleanVar(value=bool(video.is_bookmarked))
         bookmark_btn = ttk.Button(
             self,
-            text="★" if self._bookmarked.get() else "☆",
+            text="Saved" if self._bookmarked.get() else "Save",
             command=self._handle_bookmark,
             style="Secondary.TButton",
-            width=3,
+            width=6,
         )
         bookmark_btn.grid(row=0, column=6, padx=(0, 10), sticky="w")
         self._bookmark_btn = bookmark_btn
@@ -161,7 +166,7 @@ class _VideoTableRow(ttk.Frame):
         current = not self._bookmarked.get()
         self._bookmarked.set(current)
         try:
-            self._bookmark_btn.configure(text="★" if current else "☆")
+            self._bookmark_btn.configure(text="Saved" if current else "Save")
         except Exception:
             pass
         self.video.is_bookmarked = current
@@ -383,9 +388,9 @@ class VideoGrid(ttk.Frame):
             ttk.Label(
                 self,
                 text=text,
-                background="#ffffff",
-                foreground="#1d2a44",
-                font=("Segoe UI", 9, "bold"),
+                background="#fffdfa",
+                foreground="#1f3347",
+                font=("Segoe UI Semibold", 9),
                 anchor="w",
             ).grid(row=0, column=col, padx=(6 if col == 0 else 0, 10), pady=(4, 8), sticky="w")
 
@@ -445,3 +450,4 @@ class VideoGrid(ttk.Frame):
         for row in self._rows.values():
             row.set_checked(False)
         self._fire_selection_changed()
+

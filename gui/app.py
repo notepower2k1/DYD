@@ -13,6 +13,8 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any, List
 from urllib.parse import quote
 
+from PIL import Image, ImageDraw, ImageOps, ImageTk
+
 from models.profile import Profile
 from models.video import Video
 from services.download_history_service import DownloadHistoryService
@@ -40,6 +42,8 @@ except Exception:
 class TikTokDownloaderApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
+        self._ui_images: dict[str, tk.PhotoImage] = {}
+        self._theme = self._build_theme()
 
         self.tiktok_service = TikTokService()
         self._platform_states = self._build_platform_states()
@@ -89,6 +93,74 @@ class TikTokDownloaderApp:
         self._restore_last_session()
         self.root.protocol("WM_DELETE_WINDOW", self._on_app_close)
 
+    @staticmethod
+    def _build_theme() -> dict[str, str]:
+        return {
+            "bg": "#f4efe6",
+            "panel": "#fffdfa",
+            "panel_alt": "#f8f4ec",
+            "surface": "#f1ebe0",
+            "border": "#ddd2c0",
+            "text": "#1f3347",
+            "muted": "#6c7b88",
+            "accent": "#0f766e",
+            "accent_dark": "#0b5c56",
+            "accent_soft": "#dff4f1",
+            "hero": "#17344d",
+            "hero_text": "#f8fbff",
+            "gold": "#d29b2d",
+            "danger": "#8a3c2f",
+        }
+
+    def _asset_path(self, name: str) -> Path:
+        return Path.cwd() / "media" / name
+
+    def _load_ui_image(
+        self,
+        name: str,
+        size: tuple[int, int],
+        cache_key: str | None = None,
+        colorize: str | None = None,
+    ) -> tk.PhotoImage | None:
+        key = cache_key or f"{name}:{size[0]}x{size[1]}:{colorize or 'orig'}"
+        if key in self._ui_images:
+            return self._ui_images[key]
+
+        asset = self._asset_path(name)
+        if not asset.exists():
+            return None
+
+        try:
+            image = Image.open(asset).convert("RGBA")
+            image.thumbnail(size, Image.LANCZOS)
+            canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+            x = (size[0] - image.width) // 2
+            y = (size[1] - image.height) // 2
+            canvas.paste(image, (x, y), image)
+            if colorize:
+                alpha = canvas.getchannel("A")
+                tinted = ImageOps.colorize(alpha, black=(0, 0, 0), white=colorize)
+                tinted.putalpha(alpha)
+                canvas = tinted
+            photo = ImageTk.PhotoImage(canvas)
+            self._ui_images[key] = photo
+            return photo
+        except Exception:
+            return None
+
+    def _set_button_icon(
+        self,
+        button: ttk.Button,
+        asset_name: str,
+        size: tuple[int, int] = (16, 16),
+        compound: str = tk.LEFT,
+    ) -> None:
+        icon = self._load_ui_image(asset_name, size)
+        if icon is None:
+            return
+        button.configure(image=icon, compound=compound)
+        button.image = icon  # type: ignore[attr-defined]
+
     def _build_platform_states(self) -> dict[str, dict[str, Any]]:
         base_download_dir = Path.cwd() / "downloads"
         states: dict[str, dict[str, Any]] = {}
@@ -121,7 +193,8 @@ class TikTokDownloaderApp:
         return states
 
     def _build_styles(self) -> None:
-        self.root.configure(bg="#eef2f9")
+        theme = self._theme
+        self.root.configure(bg=theme["bg"])
 
         style = ttk.Style()
         try:
@@ -129,46 +202,129 @@ class TikTokDownloaderApp:
         except Exception:
             pass
 
-        style.configure("App.TFrame", background="#eef2f9")
-        style.configure("Panel.TFrame", background="#ffffff", relief="flat")
-        style.configure("Panel.TLabelframe", background="#ffffff")
-        style.configure("Panel.TLabelframe.Label", background="#ffffff", foreground="#1d2a44", font=("Segoe UI", 10, "bold"))
-        style.configure("Muted.TLabel", background="#ffffff", foreground="#6b7a99", font=("Segoe UI", 10))
+        style.configure("App.TFrame", background=theme["bg"])
+        style.configure("Panel.TFrame", background=theme["panel"], relief="flat")
+        style.configure("PanelAlt.TFrame", background=theme["panel_alt"], relief="flat")
+        style.configure("Hero.TFrame", background=theme["hero"], relief="flat")
+        style.configure("Surface.TFrame", background=theme["surface"], relief="flat")
+        style.configure("Panel.TLabelframe", background=theme["panel"], borderwidth=0)
+        style.configure(
+            "Panel.TLabelframe.Label",
+            background=theme["panel"],
+            foreground=theme["text"],
+            font=("Segoe UI Semibold", 10),
+        )
+        style.configure("Muted.TLabel", background=theme["panel"], foreground=theme["muted"], font=("Segoe UI", 10))
+        style.configure("AppMuted.TLabel", background=theme["bg"], foreground=theme["muted"], font=("Segoe UI", 10))
+        style.configure("Title.TLabel", background=theme["panel"], foreground=theme["text"], font=("Segoe UI Semibold", 11))
+        style.configure("HeroTitle.TLabel", background=theme["hero"], foreground=theme["hero_text"], font=("Segoe UI Semibold", 22))
+        style.configure("HeroSub.TLabel", background=theme["hero"], foreground="#c8d9e7", font=("Segoe UI", 11))
+        style.configure("Pill.TLabel", background=theme["accent_soft"], foreground=theme["accent_dark"], padding=(10, 4), font=("Segoe UI Semibold", 9))
+        style.configure("HeaderStat.TLabel", background=theme["panel"], foreground=theme["text"], font=("Segoe UI Semibold", 10))
 
-        style.configure("Primary.TButton", foreground="#ffffff", background="#1e5eff", borderwidth=0, padding=(14, 8), font=("Segoe UI", 10, "bold"))
-        style.map("Primary.TButton", background=[("active", "#1949c7")])
+        style.configure(
+            "Primary.TButton",
+            foreground="#ffffff",
+            background=theme["accent"],
+            borderwidth=0,
+            padding=(16, 9),
+            font=("Segoe UI Semibold", 10),
+        )
+        style.map(
+            "Primary.TButton",
+            background=[("active", theme["accent_dark"]), ("pressed", theme["accent_dark"])],
+        )
 
-        style.configure("Secondary.TButton", foreground="#1e5eff", background="#e9f0ff", borderwidth=0, padding=(12, 7), font=("Segoe UI", 10, "bold"))
-        style.map("Secondary.TButton", background=[("active", "#d9e6ff")])
+        style.configure(
+            "Secondary.TButton",
+            foreground=theme["accent_dark"],
+            background=theme["accent_soft"],
+            borderwidth=0,
+            padding=(13, 8),
+            font=("Segoe UI Semibold", 10),
+        )
+        style.map(
+            "Secondary.TButton",
+            background=[("active", "#cdebe6"), ("pressed", "#cdebe6")],
+            foreground=[("disabled", "#8ba39f")],
+        )
 
-        style.configure("Card.TFrame", background="#ffffff", relief="solid", borderwidth=1)
-        style.configure("CardInner.TFrame", background="#ffffff")
-        style.configure("VideoThumb.TLabel", background="#121826")
-
-        style.configure("Status.TLabel", background="#dde6f7", foreground="#1b2a45", padding=(10, 7), font=("Segoe UI", 9))
+        style.configure("Card.TFrame", background=theme["panel"], relief="solid", borderwidth=1)
+        style.configure("CardInner.TFrame", background=theme["panel"])
+        style.configure("VideoThumb.TLabel", background="#182531")
+        style.configure("Status.TLabel", background=theme["surface"], foreground=theme["text"], padding=(12, 8), font=("Segoe UI", 9))
+        style.configure("App.TEntry", fieldbackground=theme["panel_alt"], foreground=theme["text"], bordercolor=theme["border"], padding=8)
+        style.configure("App.TCombobox", fieldbackground=theme["panel_alt"], foreground=theme["text"], bordercolor=theme["border"], arrowsize=14, padding=6)
+        style.map("App.TCombobox", fieldbackground=[("readonly", theme["panel_alt"])])
+        style.configure("App.TCheckbutton", background=theme["panel"], foreground=theme["text"])
+        style.configure("App.TNotebook", background=theme["bg"], borderwidth=0, tabmargins=(0, 0, 0, 0))
+        style.configure(
+            "App.TNotebook.Tab",
+            background=theme["surface"],
+            foreground=theme["muted"],
+            padding=(16, 10),
+            font=("Segoe UI Semibold", 10),
+            borderwidth=0,
+        )
+        style.map(
+            "App.TNotebook.Tab",
+            background=[("selected", theme["panel"]), ("active", "#ebe4d6")],
+            foreground=[("selected", theme["text"]), ("active", theme["text"])],
+        )
+        style.configure(
+            "App.Treeview",
+            background=theme["panel"],
+            fieldbackground=theme["panel"],
+            foreground=theme["text"],
+            bordercolor=theme["border"],
+            rowheight=32,
+            font=("Segoe UI", 9),
+        )
+        style.configure(
+            "App.Treeview.Heading",
+            background=theme["surface"],
+            foreground=theme["text"],
+            font=("Segoe UI Semibold", 9),
+            relief="flat",
+        )
+        style.map("App.Treeview", background=[("selected", theme["accent_soft"])], foreground=[("selected", theme["text"])])
 
     def _build_ui(self) -> None:
-        self.home_frame = ttk.Frame(self.root, padding=24, style="App.TFrame")
+        self.home_frame = ttk.Frame(self.root, padding=26, style="App.TFrame")
         self.home_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.main_frame = ttk.Frame(self.root, padding=14, style="App.TFrame")
+        self.main_frame = ttk.Frame(self.root, padding=18, style="App.TFrame")
 
         self._build_platform_home(self.home_frame)
 
-        topbar = ttk.Frame(self.main_frame, padding=10, style="Panel.TFrame")
+        topbar = ttk.Frame(self.main_frame, padding=14, style="Panel.TFrame")
         topbar.pack(side=tk.TOP, fill=tk.X, pady=(0, 10))
+
+        brand_left = ttk.Frame(topbar, style="Panel.TFrame")
+        brand_left.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.platform_brand_label = tk.Label(
+            brand_left,
+            bg=self._theme["panel"],
+            bd=0,
+            highlightthickness=0,
+            width=44,
+            height=44,
+        )
+        self.platform_brand_label.pack(side=tk.LEFT, padx=(0, 12))
+
+        title_box = ttk.Frame(brand_left, style="Panel.TFrame")
+        title_box.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         self.current_platform_title_var = tk.StringVar(value="")
         ttk.Label(
-            topbar,
+            title_box,
             textvariable=self.current_platform_title_var,
-            background="#ffffff",
-            foreground="#1d2a44",
-            font=("Segoe UI", 11, "bold"),
-        ).pack(side=tk.LEFT)
+            style="Title.TLabel",
+        ).pack(anchor="w")
 
         self.platform_hint_var = tk.StringVar(value="")
-        ttk.Label(topbar, textvariable=self.platform_hint_var, style="Muted.TLabel").pack(side=tk.LEFT, padx=(12, 0))
+        ttk.Label(title_box, textvariable=self.platform_hint_var, style="Muted.TLabel").pack(anchor="w", pady=(2, 0))
 
         ttk.Button(
             topbar,
@@ -177,7 +333,7 @@ class TikTokDownloaderApp:
             style="Secondary.TButton",
         ).pack(side=tk.RIGHT)
 
-        self.notebook = ttk.Notebook(self.main_frame)
+        self.notebook = ttk.Notebook(self.main_frame, style="App.TNotebook")
         self.notebook.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.notebook.bind("<<NotebookTabChanged>>", lambda _e: self._save_session_cache())
 
@@ -199,7 +355,7 @@ class TikTokDownloaderApp:
         self._build_bookmark_tab()
         self._build_downloads_tab()
 
-        footer = ttk.Frame(self.main_frame, padding=10, style="Panel.TFrame")
+        footer = ttk.Frame(self.main_frame, padding=12, style="Panel.TFrame")
         footer.pack(side=tk.TOP, fill=tk.X, pady=(10, 0))
 
         self.selected_var = tk.StringVar(value="Selected 0 video(s).")
@@ -211,42 +367,47 @@ class TikTokDownloaderApp:
         self.download_btn = ttk.Button(right_actions, text="Queue Selected", command=self.on_queue_selected, style="Secondary.TButton")
         self.download_btn.pack(side=tk.LEFT, padx=(0, 8))
 
-        ttk.Button(right_actions, text="Settings", command=self._open_settings_popup, style="Secondary.TButton").pack(side=tk.LEFT)
+        self.settings_btn = ttk.Button(right_actions, text="Settings", command=self._open_settings_popup, style="Secondary.TButton")
+        self.settings_btn.pack(side=tk.LEFT)
 
         self.status_var = tk.StringVar(value="Choose a tab and fetch videos.")
-        ttk.Label(footer, textvariable=self.status_var, style="Muted.TLabel", anchor=tk.W).pack(side=tk.RIGHT, padx=(0, 14))
+        ttk.Label(footer, textvariable=self.status_var, style="Status.TLabel", anchor=tk.W).pack(side=tk.RIGHT, padx=(0, 14))
+        self._set_button_icon(self.settings_btn, "view.png")
         self._refresh_platform_ui(save=False)
 
     def _build_platform_home(self, master: ttk.Frame) -> None:
-        hero = ttk.Frame(master, padding=18, style="Panel.TFrame")
-        hero.pack(fill=tk.BOTH, expand=True)
+        hero = ttk.Frame(master, padding=22, style="Hero.TFrame")
+        hero.pack(fill=tk.X)
 
+        ttk.Label(hero, text="DYD Workspace", style="HeroTitle.TLabel").pack(anchor="w")
         ttk.Label(
             hero,
-            text="Choose a Platform",
-            background="#ffffff",
-            foreground="#1d2a44",
-            font=("Segoe UI", 18, "bold"),
-        ).pack(anchor="w")
-        ttk.Label(
-            hero,
-            text="Open only the workspace you need. Each platform keeps its own download folder and download history.",
-            style="Muted.TLabel",
-            wraplength=760,
+            text="A cleaner control room for TikTok, Douyin, and Rednote. Each workspace stays isolated, with its own history and download folder.",
+            style="HeroSub.TLabel",
+            wraplength=880,
             justify=tk.LEFT,
-        ).pack(anchor="w", pady=(6, 18))
+        ).pack(anchor="w", pady=(6, 16))
+        ttk.Label(hero, text="3 dedicated workspaces ready", style="Pill.TLabel").pack(anchor="w")
 
-        cards = ttk.Frame(hero, style="Panel.TFrame")
+        cards = ttk.Frame(master, padding=(0, 18, 0, 0), style="App.TFrame")
         cards.pack(fill=tk.X)
 
-        self._build_platform_card(cards, "TikTok", "Profile tools, multi-link fetch, downloads", True, lambda: self._enter_platform("tiktok")).pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-        self._build_platform_card(cards, "Douyin", "Profile tools, multi-link fetch, downloads", True, lambda: self._enter_platform("douyin")).pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
-        self._build_platform_card(cards, "Rednote", "Profile tools, multi-link fetch, downloads", True, lambda: self._enter_platform("xhs")).pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0))
+        self._build_platform_card(cards, "TikTok", "tiktok.png", "Profile tools, multi-link fetch, search, bookmarks, downloads", True, lambda: self._enter_platform("tiktok")).pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        self._build_platform_card(cards, "Douyin", "douyin.png", "Profile tools, multi-link fetch, search, bookmarks, downloads", True, lambda: self._enter_platform("douyin")).pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+        self._build_platform_card(cards, "Rednote", "xiaohongshu.png", "Profile tools, multi-link fetch, explore, bookmarks, downloads", True, lambda: self._enter_platform("xhs")).pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0))
 
-    def _build_platform_card(self, master: ttk.Frame, title: str, subtitle: str, enabled: bool, command) -> ttk.Frame:
-        card = ttk.Frame(master, padding=16, style="Panel.TFrame")
-        ttk.Label(card, text=title, background="#ffffff", foreground="#1d2a44", font=("Segoe UI", 13, "bold")).pack(anchor="w")
-        ttk.Label(card, text=subtitle, style="Muted.TLabel", wraplength=220, justify=tk.LEFT).pack(anchor="w", pady=(8, 18))
+    def _build_platform_card(self, master: ttk.Frame, title: str, asset_name: str, subtitle: str, enabled: bool, command) -> ttk.Frame:
+        card = ttk.Frame(master, padding=18, style="Panel.TFrame")
+
+        logo = self._load_ui_image(asset_name, (46, 46), cache_key=f"platform-card:{asset_name}")
+        logo_holder = tk.Label(card, bg=self._theme["panel"], bd=0, highlightthickness=0)
+        if logo is not None:
+            logo_holder.configure(image=logo)
+            logo_holder.image = logo  # type: ignore[attr-defined]
+        logo_holder.pack(anchor="w", pady=(0, 14))
+
+        ttk.Label(card, text=title, style="Title.TLabel").pack(anchor="w")
+        ttk.Label(card, text=subtitle, style="Muted.TLabel", wraplength=240, justify=tk.LEFT).pack(anchor="w", pady=(8, 18))
         if enabled:
             ttk.Button(card, text=f"Open {title}", command=command, style="Primary.TButton").pack(anchor="w")
         else:
@@ -265,6 +426,7 @@ class TikTokDownloaderApp:
 
         self.fetch_profile_btn = PrimaryButton(controls_panel, text="Fetch Profile Videos", command=self.on_fetch_profile)
         self.fetch_profile_btn.pack(side=tk.LEFT)
+        self._set_button_icon(self.fetch_profile_btn, "search.png")
 
         self._build_video_tools(
             self.profile_tab,
@@ -344,10 +506,20 @@ class TikTokDownloaderApp:
         self.multi_links_label.pack(side=tk.TOP, anchor="w", pady=(0, 4))
         self.multi_links_text = tk.Text(left, height=4, wrap="word", font=("Segoe UI", 10), relief="solid", borderwidth=1)
         self.multi_links_text.pack(side=tk.TOP, fill=tk.X, expand=True)
+        self.multi_links_text.configure(
+            bg=self._theme["panel_alt"],
+            fg=self._theme["text"],
+            insertbackground=self._theme["text"],
+            relief="flat",
+            padx=10,
+            pady=10,
+        )
 
         self.fetch_links_btn = ttk.Button(controls_panel, text="Fetch Multi Links", command=self.on_fetch_multi_links, style="Secondary.TButton")
         self.fetch_links_btn.pack(side=tk.LEFT)
-        ttk.Button(controls_panel, text="Clean Links", command=self.on_clean_multi_links, style="Secondary.TButton").pack(side=tk.LEFT, padx=(8, 0))
+        self._set_button_icon(self.fetch_links_btn, "link.png")
+        self.clean_links_btn = ttk.Button(controls_panel, text="Clean Links", command=self.on_clean_multi_links, style="Secondary.TButton")
+        self.clean_links_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         self._build_video_tools(
             self.multi_tab,
@@ -395,6 +567,7 @@ class TikTokDownloaderApp:
             state="readonly",
             width=20,
             values=(),
+            style="App.TCombobox",
         )
 
         self.search_btn = ttk.Button(
@@ -404,6 +577,7 @@ class TikTokDownloaderApp:
             style="Secondary.TButton",
         )
         self.search_btn.pack(side=tk.LEFT)
+        self._set_button_icon(self.search_btn, "search.png")
 
         load_more_slot = ttk.Frame(controls_panel, style="Panel.TFrame")
         load_more_slot.pack(side=tk.LEFT, padx=(8, 0))
@@ -433,6 +607,7 @@ class TikTokDownloaderApp:
             state="readonly",
             width=14,
             values=("Comprehensive", "Newest", "Most Liked", "Most Commented", "Most Collected"),
+            style="App.TCombobox",
         ).pack(side=tk.LEFT, padx=(6, 10))
 
         ttk.Label(self.search_options_rednote, text="Note Type", style="Muted.TLabel").pack(side=tk.LEFT)
@@ -442,6 +617,7 @@ class TikTokDownloaderApp:
             state="readonly",
             width=8,
             values=("All", "Video", "Image"),
+            style="App.TCombobox",
         ).pack(side=tk.LEFT, padx=(6, 10))
 
         ttk.Label(self.search_options_rednote, text="Publish Time", style="Muted.TLabel").pack(side=tk.LEFT)
@@ -451,6 +627,7 @@ class TikTokDownloaderApp:
             state="readonly",
             width=12,
             values=("All", "Past 24 hours", "Past week", "Past 6 months"),
+            style="App.TCombobox",
         ).pack(side=tk.LEFT, padx=(6, 0))
 
         self.search_douyin_mode_var = tk.StringVar(value="Standard")
@@ -462,6 +639,7 @@ class TikTokDownloaderApp:
             state="readonly",
             width=10,
             values=("Standard", "Jingxuan"),
+            style="App.TCombobox",
         ).pack(side=tk.LEFT, padx=(6, 10))
 
 
@@ -511,7 +689,7 @@ class TikTokDownloaderApp:
         ).pack(side=tk.LEFT)
         ttk.Label(
             header,
-            text="Mark videos with ? to keep them for later.",
+            text="Save videos here to keep a short list for later review.",
             style="Muted.TLabel",
         ).pack(side=tk.LEFT, padx=(12, 0))
 
@@ -536,9 +714,14 @@ class TikTokDownloaderApp:
         top = ttk.Frame(self.downloads_tab, padding=10, style="Panel.TFrame")
         top.pack(side=tk.TOP, fill=tk.X)
 
-        ttk.Button(top, text="Refresh History", command=self._refresh_downloaded_tab, style="Secondary.TButton").pack(side=tk.LEFT)
-        ttk.Button(top, text="Open File", command=self._open_selected_downloaded_file, style="Secondary.TButton").pack(side=tk.LEFT, padx=(8, 0))
-        ttk.Button(top, text="Clear Completed Queue", command=self._clear_completed_queue, style="Secondary.TButton").pack(side=tk.LEFT, padx=(8, 0))
+        self.refresh_history_btn = ttk.Button(top, text="Refresh History", command=self._refresh_downloaded_tab, style="Secondary.TButton")
+        self.refresh_history_btn.pack(side=tk.LEFT)
+        self._set_button_icon(self.refresh_history_btn, "view.png")
+        self.open_file_btn = ttk.Button(top, text="Open File", command=self._open_selected_downloaded_file, style="Secondary.TButton")
+        self.open_file_btn.pack(side=tk.LEFT, padx=(8, 0))
+        self._set_button_icon(self.open_file_btn, "play.png")
+        self.clear_queue_btn = ttk.Button(top, text="Clear Completed Queue", command=self._clear_completed_queue, style="Secondary.TButton")
+        self.clear_queue_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         queue_panel = ttk.Frame(self.downloads_tab, padding=10, style="Panel.TFrame")
         queue_panel.pack(side=tk.TOP, fill=tk.BOTH, expand=False)
@@ -570,6 +753,7 @@ class TikTokDownloaderApp:
 
         queue_columns = ("select", "title", "type", "profile", "size", "status", "progress")
         self.queue_tree = ttk.Treeview(queue_panel, columns=queue_columns, show="headings", height=7)
+        self.queue_tree.configure(style="App.Treeview")
         self.queue_tree.heading("select", text="")
         self.queue_tree.heading("title", text="Title")
         self.queue_tree.heading("type", text="Type")
@@ -597,6 +781,7 @@ class TikTokDownloaderApp:
 
         columns = ("downloaded_at", "profile", "title", "file_path")
         self.downloaded_tree = ttk.Treeview(history_panel, columns=columns, show="headings")
+        self.downloaded_tree.configure(style="App.Treeview")
         self.downloaded_tree.heading("downloaded_at", text="Downloaded At")
         self.downloaded_tree.heading("profile", text="Profile")
         self.downloaded_tree.heading("title", text="Title")
@@ -635,7 +820,14 @@ class TikTokDownloaderApp:
             if is_douyin
             else ("Paste a Rednote profile URL or user ID to load notes, or continue from the last cached session." if is_xhs else "Paste a profile URL to load videos, or continue from the last cached session.")
         )
-        self.profile_avatar_label.configure(text="@", image="", anchor="center", background="#dfe8f7", foreground="#6a7da6", font=("Segoe UI", 18, "bold"))
+        self.profile_avatar_label.configure(
+            text="@",
+            image="",
+            anchor="center",
+            background=self._theme["accent_soft"],
+            foreground=self._theme["accent_dark"],
+            font=("Segoe UI Semibold", 18),
+        )
         self._profile_avatar_img = None
         self.profile_grid.show_loading("Loading workspace...")
         self.root.after(
@@ -690,6 +882,7 @@ class TikTokDownloaderApp:
             state="readonly",
             width=14,
             values=("upload_time", "view_count", "like_count", "comment_count", "trend_score"),
+            style="App.TCombobox",
         )
         sort_key_combo.pack(side=tk.LEFT, padx=(6, 6))
         setattr(self, f"{prefix}_sort_key_combo", sort_key_combo)
@@ -699,6 +892,7 @@ class TikTokDownloaderApp:
             state="readonly",
             width=7,
             values=("desc", "asc"),
+            style="App.TCombobox",
         ).pack(side=tk.LEFT, padx=(0, 12))
 
         for key, label, attr_name, width in (
@@ -710,7 +904,7 @@ class TikTokDownloaderApp:
         ):
             label_widget = ttk.Label(tools, text=label, style="Muted.TLabel")
             label_widget.pack(side=tk.LEFT)
-            entry_widget = ttk.Entry(tools, textvariable=getattr(self, attr_name), width=width)
+            entry_widget = ttk.Entry(tools, textvariable=getattr(self, attr_name), width=width, style="App.TEntry")
             entry_widget.pack(side=tk.LEFT, padx=(6, 10))
             setattr(self, f"{prefix}_{key}_label_widget", label_widget)
             setattr(self, f"{prefix}_{key}_entry_widget", entry_widget)
@@ -730,7 +924,7 @@ class TikTokDownloaderApp:
         popup.title("Settings")
         popup.transient(self.root)
         popup.resizable(False, False)
-        popup.configure(bg="#eef2f9")
+        popup.configure(bg=self._theme["bg"])
         popup.grab_set()
         popup.focus_force()
         self._settings_popup = popup
@@ -750,6 +944,7 @@ class TikTokDownloaderApp:
             state="readonly",
             width=6,
             values=("10", "20", "50"),
+            style="App.TCombobox",
         )
         self.batch_size_combo.pack(side=tk.RIGHT)
 
@@ -762,6 +957,7 @@ class TikTokDownloaderApp:
             state="readonly",
             width=6,
             values=("0.60", "0.70", "0.80", "0.90"),
+            style="App.TCombobox",
         )
         trend_combo.pack(side=tk.RIGHT)
         trend_combo.bind("<<ComboboxSelected>>", lambda _e: self._apply_trend_threshold())
@@ -818,6 +1014,7 @@ class TikTokDownloaderApp:
             text="Keep Rednote browser visible (debug)",
             variable=self.rednote_debug_var,
             command=self._toggle_rednote_debug,
+            style="App.TCheckbutton",
         ).pack(anchor="w", pady=(0, 8))
         rednote_buttons = ttk.Frame(rednote_row, style="Panel.TFrame")
         rednote_buttons.pack(anchor="w")
@@ -1039,14 +1236,21 @@ class TikTokDownloaderApp:
         platform = self.platform_var.get().strip().lower() or "tiktok"
         is_douyin = platform == "douyin"
         is_xhs = platform == "xhs"
+        logo_name = "douyin.png" if is_douyin else ("xiaohongshu.png" if is_xhs else "tiktok.png")
+        platform_logo = self._load_ui_image(logo_name, (44, 44), cache_key=f"workspace-logo:{logo_name}")
+        if hasattr(self, "platform_brand_label"):
+            self.platform_brand_label.configure(image="", text="")
+            if platform_logo is not None:
+                self.platform_brand_label.configure(image=platform_logo)
+                self.platform_brand_label.image = platform_logo  # type: ignore[attr-defined]
         self.current_platform_title_var.set(
             "Douyin Workspace" if is_douyin else ("Rednote Workspace" if is_xhs else "TikTok Workspace")
         )
 
         self.platform_hint_var.set(
-            "Douyin mode: profile and video tools."
+            "Focused workspace for profile capture, search, bookmarks, and downloads."
             if is_douyin
-            else ("Rednote mode: profile and video tools." if is_xhs else "TikTok mode: profile and video tools.")
+            else ("Focused workspace for notes, explore flows, bookmarks, and downloads." if is_xhs else "Focused workspace for profile capture, search, bookmarks, and downloads.")
         )
 
         self.profile_url_input.label.configure(
@@ -2230,7 +2434,7 @@ class TikTokDownloaderApp:
         top = ttk.Frame(main, style="Panel.TFrame", padding=12)
         top.pack(fill=tk.BOTH, expand=False)
 
-        preview_holder = tk.Frame(top, bg="#121826", width=320, height=560, highlightthickness=1, highlightbackground="#2b3345")
+        preview_holder = tk.Frame(top, bg="#182531", width=320, height=560, highlightthickness=1, highlightbackground="#31485d")
         preview_holder.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 14))
         preview_holder.pack_propagate(False)
 
@@ -2327,6 +2531,14 @@ class TikTokDownloaderApp:
             description = tk.Text(right, height=8, wrap="word", font=("Segoe UI", 10), relief="solid", borderwidth=1)
             description.pack(fill=tk.BOTH, expand=True)
             description.insert("1.0", video.description)
+            description.configure(
+                bg=self._theme["panel_alt"],
+                fg=self._theme["text"],
+                insertbackground=self._theme["text"],
+                relief="flat",
+                padx=10,
+                pady=10,
+            )
             description.configure(state="disabled")
 
         actions = ttk.Frame(main, style="Panel.TFrame", padding=12)
@@ -2379,26 +2591,31 @@ class TikTokDownloaderApp:
         pause_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=48, height=34)
         pause_slot.grid(row=0, column=1, padx=(0, 8))
         pause_slot.grid_propagate(False)
-        pause_btn = ttk.Button(pause_slot, text="⏸", width=4, style="Secondary.TButton", command=lambda: self._pause_video_playback(popup, watch_status_var))
+        pause_btn = ttk.Button(pause_slot, text="", width=4, style="Secondary.TButton", command=lambda: self._pause_video_playback(popup, watch_status_var))
         pause_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         resume_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=48, height=34)
         resume_slot.grid(row=0, column=2, padx=(0, 8))
         resume_slot.grid_propagate(False)
-        resume_btn = ttk.Button(resume_slot, text="▶", width=4, style="Secondary.TButton", command=lambda: self._resume_video_playback(popup, watch_status_var))
+        resume_btn = ttk.Button(resume_slot, text="", width=4, style="Secondary.TButton", command=lambda: self._resume_video_playback(popup, watch_status_var))
         resume_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         replay_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=48, height=34)
         replay_slot.grid(row=0, column=3, padx=(0, 8))
         replay_slot.grid_propagate(False)
-        replay_btn = ttk.Button(replay_slot, text="↻", width=4, style="Secondary.TButton", command=lambda: self._replay_video_playback(popup, video, watch_status_var))
+        replay_btn = ttk.Button(replay_slot, text="", width=4, style="Secondary.TButton", command=lambda: self._replay_video_playback(popup, video, watch_status_var))
         replay_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
 
         open_link_slot = ttk.Frame(controls_box, style="Panel.TFrame", width=112, height=34)
         open_link_slot.grid(row=0, column=4)
         open_link_slot.grid_propagate(False)
-        open_link_btn = ttk.Button(open_link_slot, text="🔗", style="Secondary.TButton", command=lambda: self._open_video_link(video))
+        open_link_btn = ttk.Button(open_link_slot, text="Open Link", style="Secondary.TButton", command=lambda: self._open_video_link(video))
         open_link_btn.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=1.0)
+        self._set_button_icon(watch_btn, "view.png")
+        self._set_button_icon(pause_btn, "pause.png", compound=tk.CENTER)
+        self._set_button_icon(resume_btn, "play.png", compound=tk.CENTER)
+        self._set_button_icon(replay_btn, "replay.png", compound=tk.CENTER)
+        self._set_button_icon(open_link_btn, "link.png")
 
         popup._watch_btn = watch_btn  # type: ignore[attr-defined]
         popup._pause_btn = pause_btn  # type: ignore[attr-defined]
