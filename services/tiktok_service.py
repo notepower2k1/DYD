@@ -70,6 +70,17 @@ class TikTokService:
     def get_xhs_stream_candidates(self, url: str) -> list[str]:
         return self._xhs_local.get_stream_candidates(url)
 
+    def fetch_xhs_explore(
+        self,
+        offset: int = 0,
+        count: int = 20,
+        category: str = "homefeed_recommend",
+    ) -> tuple[list[Video], bool, int, str]:
+        return self._xhs_local.fetch_explore_videos_paged(offset=offset, count=count, category=category)
+
+    def fetch_xhs_explore_categories(self) -> list[dict[str, str]]:
+        return self._xhs_local.fetch_explore_categories()
+
     def clear_xhs_session(self) -> None:
         self._xhs_local.clear_session()
 

@@ -49,6 +49,7 @@ class XhsLocalService:
         self._debug_enabled = False
         self._log_path = project_root / "xhs_debug.log"
         self._search_listener_attached = False
+        self._homefeed_listener_attached = False
 
     @staticmethod
     def is_xhs_url(url: str) -> bool:
@@ -147,6 +148,25 @@ class XhsLocalService:
             result = self._run_coro(self._fetch_profile_videos_paged_async(url, start, count))
         if not isinstance(result, tuple) or len(result) != 3:
             raise RuntimeError("Rednote profile fetch did not return a valid result.")
+        return result
+
+    def fetch_explore_videos_paged(
+        self,
+        offset: int = 0,
+        count: int = 20,
+        category: str = "homefeed_recommend",
+    ) -> tuple[list[Video], bool, int, str]:
+        with self._operation_lock:
+            result = self._run_coro(self._fetch_explore_videos_paged_async(offset, count, category))
+        if not isinstance(result, tuple) or len(result) != 4:
+            raise RuntimeError("Rednote explore fetch did not return a valid result.")
+        return result
+
+    def fetch_explore_categories(self) -> list[dict[str, str]]:
+        with self._operation_lock:
+            result = self._run_coro(self._fetch_explore_categories_async())
+        if not isinstance(result, list):
+            return []
         return result
 
     def search_by_keyword(
@@ -292,6 +312,49 @@ class XhsLocalService:
         try:
             page.on("request", _on_request)
             self._search_listener_attached = True
+        except Exception:
+            pass
+
+    def _attach_homefeed_interceptor(self, page: Page) -> None:
+        if self._homefeed_listener_attached:
+            return
+
+        def _pick_headers(headers: dict[str, str]) -> dict[str, str]:
+            picked: dict[str, str] = {}
+            for key in ("content-type", "referer", "origin", "user-agent"):
+                value = headers.get(key)
+                if value:
+                    picked[key] = value
+            return picked
+
+        async def _on_request(request) -> None:  # type: ignore[no-untyped-def]
+            try:
+                url = request.url
+                if "/api/sns/web/v1/homefeed" not in url:
+                    return
+                payload = None
+                try:
+                    payload = request.post_data_json
+                except Exception:
+                    payload = None
+                if payload is None:
+                    try:
+                        payload = request.post_data
+                    except Exception:
+                        payload = None
+                self._debug(
+                    "homefeed.intercept",
+                    url=url,
+                    method=request.method,
+                    headers=_pick_headers(request.headers or {}),
+                    payload=payload,
+                )
+            except Exception:
+                pass
+
+        try:
+            page.on("request", _on_request)
+            self._homefeed_listener_attached = True
         except Exception:
             pass
 
@@ -935,15 +998,24 @@ class XhsLocalService:
                 await page.goto(search_url, wait_until="domcontentloaded", timeout=15000)
             except Exception:
                 pass
+        response = None
         try:
             response = await self._signed_post(page, self._SEARCH_API, payload)
         except Exception as exc:
-            if self._debug_enabled:
+            if "login expired" in str(exc).lower():
                 try:
-                    self._debug("search.error", error=str(exc or ""), payload=payload)
+                    await page.goto(self._LOGIN_HOME, wait_until="domcontentloaded", timeout=60000)
+                    await self._ensure_mnsv2_ready(page)
+                    response = await self._signed_post(page, self._SEARCH_API, payload)
                 except Exception:
-                    pass
-            raise
+                    response = None
+            if response is None:
+                if self._debug_enabled:
+                    try:
+                        self._debug("search.error", error=str(exc or ""), payload=payload)
+                    except Exception:
+                        pass
+                raise
         items = response.get("items") or []
         has_more = bool(response.get("has_more", False))
         try:
@@ -953,6 +1025,7 @@ class XhsLocalService:
             pass
 
         videos: list[Video] = []
+        debug_samples = 0
         if isinstance(items, list):
             for item in items:
                 if not isinstance(item, dict):
@@ -1003,11 +1076,197 @@ class XhsLocalService:
                             xsec_source,
                         )
                 videos.append(video_obj)
+                if self._debug_enabled and debug_samples < 3:
+                    try:
+                        self._debug(
+                            "search.note_sample",
+                            note_id=note_id,
+                            cover=note.get("cover"),
+                            image_list=note.get("image_list"),
+                            thumbnail=video_obj.thumbnail_url,
+                            image_urls=list(video_obj.image_urls)[:3],
+                        )
+                    except Exception:
+                        pass
+                    debug_samples += 1
 
         # Server-side filters already reflect the chosen sorting.
 
         next_offset = page_index + 1 if has_more else page_index
         return videos, has_more, next_offset, search_id
+
+    async def _fetch_explore_videos_paged_async(
+        self,
+        offset: int,
+        count: int,
+        category: str,
+    ) -> tuple[list[Video], bool, int, str]:
+        context, page = await self._ensure_browser_session(keep_visible=self._debug_enabled)
+        if self._debug_enabled:
+            await self._restore_window(page)
+        else:
+            await self._move_window_offscreen(page)
+        await self._ensure_home_ready(page)
+        if self._debug_enabled:
+            self._attach_homefeed_interceptor(page)
+
+        if not await self._is_logged_in(context, page):
+            raise RuntimeError("Rednote login is required. Please login from Settings first.")
+
+        try:
+            await page.goto(f"{self._HOME}explore", wait_until="domcontentloaded", timeout=60000)
+            await asyncio.sleep(0.5)
+            state = await page.evaluate("() => window.__INITIAL_STATE__ || null")
+        except Exception:
+            state = None
+
+        feed_items: list[dict[str, Any]] = []
+        has_more = False
+        cursor_score = ""
+
+        if not isinstance(state, dict):
+            try:
+                html = await page.content()
+                state = self._extract_state_from_html(html) if html else None
+            except Exception:
+                state = None
+
+        notes: list[dict[str, Any]] = []
+        try:
+            payload = {
+                "cursor_score": "",
+                "num": min(max(int(count or 20), 1), 30),
+                "refresh_type": 1,
+                "note_index": max(0, int(offset or 0)),
+                "unread_begin_note_id": "",
+                "unread_end_note_id": "",
+                "unread_note_count": 0,
+                "category": category or "homefeed_recommend",
+                "search_key": "",
+                "need_num": 10,
+                "image_formats": ["jpg", "webp", "avif"],
+                "need_filter_image": False,
+            }
+            if self._debug_enabled:
+                self._debug("homefeed.request", payload=payload)
+            data = await self._signed_post(page, "/api/sns/web/v1/homefeed", payload)
+            if isinstance(data, dict):
+                feed_items = data.get("items") or []
+                has_more = bool(data.get("has_more", False))
+                cursor_score = str(data.get("cursor_score") or "")
+                if self._debug_enabled:
+                    self._debug(
+                        "homefeed.response",
+                        item_count=len(feed_items) if isinstance(feed_items, list) else 0,
+                        has_more=has_more,
+                        cursor_score=cursor_score,
+                    )
+        except Exception as exc:
+            if self._debug_enabled:
+                try:
+                    self._debug("homefeed.error", error=str(exc or ""))
+                except Exception:
+                    pass
+            feed_items = []
+        if feed_items:
+            for item in feed_items:
+                if not isinstance(item, dict):
+                    continue
+                card = item.get("note_card") or item.get("note") or item.get("noteCard")
+                if isinstance(card, dict):
+                    if "note_id" not in card:
+                        note_id = item.get("id")
+                        if isinstance(note_id, str) and note_id.strip():
+                            card = dict(card)
+                            card["note_id"] = note_id.strip()
+                    if "xsec_token" not in card:
+                        token = item.get("xsec_token")
+                        if isinstance(token, str) and token.strip():
+                            card = dict(card)
+                            card["xsec_token"] = token.strip()
+                    notes.append(card)
+        if isinstance(state, dict) and not notes:
+            notes = self._extract_notes_from_state(state)
+
+        deduped: dict[str, dict[str, Any]] = {}
+        for note in notes:
+            if not isinstance(note, dict):
+                continue
+            note_id = str(note.get("note_id") or note.get("id") or "").strip()
+            if not note_id or note_id in deduped:
+                continue
+            deduped[note_id] = note
+
+        limit = max(1, min(int(count or 20), 30))
+        items = list(deduped.values())[:limit]
+
+        videos: list[Video] = []
+        for note in items:
+            note_id = str(note.get("note_id") or note.get("id") or "").strip()
+            xsec_token = str(note.get("xsec_token") or "")
+            xsec_source = str(note.get("xsec_source") or "pc_feed")
+            videos.append(
+                self._video_from_note(
+                    note,
+                    self._build_note_url(note_id, xsec_token, xsec_source),
+                    xsec_token,
+                    xsec_source,
+                )
+            )
+
+        next_offset = offset + len(items)
+        if not has_more:
+            has_more = bool(feed_items) and len(items) >= limit
+        return videos, has_more, next_offset, cursor_score
+
+    async def _fetch_explore_categories_async(self) -> list[dict[str, str]]:
+        context, page = await self._ensure_browser_session(keep_visible=self._debug_enabled)
+        if self._debug_enabled:
+            await self._restore_window(page)
+        else:
+            await self._move_window_offscreen(page)
+        await self._ensure_home_ready(page)
+        if not await self._is_logged_in(context, page):
+            raise RuntimeError("Rednote login is required. Please login from Settings first.")
+
+        await page.goto(f"{self._HOME}explore", wait_until="domcontentloaded", timeout=60000)
+        data = await self._signed_get(page, "/api/sns/web/v1/homefeed/category", {})
+        categories: list[dict[str, Any]] = []
+        if isinstance(data, dict):
+            categories = data.get("categories") or data.get("list") or data.get("data") or []
+        result: list[dict[str, str]] = []
+        if isinstance(categories, list):
+            for item in categories:
+                if not isinstance(item, dict):
+                    continue
+                value = str(item.get("id") or item.get("category") or item.get("feed_type") or item.get("value") or "").strip()
+                if not value:
+                    continue
+                # Prefer raw category id labels to avoid unreadable localized text.
+                result.append({"label": value, "value": value})
+        if self._debug_enabled:
+            try:
+                self._debug("homefeed.categories", count=len(result))
+            except Exception:
+                pass
+        return result
+
+    def _extract_notes_from_state(self, data: Any) -> list[dict[str, Any]]:
+        collected: list[dict[str, Any]] = []
+
+        def _walk(node: Any) -> None:
+            if isinstance(node, dict):
+                note_id = node.get("note_id") or node.get("id")
+                if note_id and any(key in node for key in ("cover", "image_list", "video", "display_title", "user")):
+                    collected.append(node)
+                for value in node.values():
+                    _walk(value)
+            elif isinstance(node, list):
+                for item in node:
+                    _walk(item)
+
+        _walk(data)
+        return collected
 
     async def _download_video_async(
         self,
@@ -1717,6 +1976,7 @@ class XhsLocalService:
                     f"{host}{uri}",
                     headers=headers,
                     params=params,
+                    timeout=60000,
                 )
                 return await self._parse_response(response)
             except Exception as exc:
@@ -1742,6 +2002,7 @@ class XhsLocalService:
                     f"{host}{uri}",
                     headers=headers,
                     data=json_str,
+                    timeout=60000,
                 )
                 return await self._parse_response(response)
             except Exception as exc:
@@ -1757,12 +2018,10 @@ class XhsLocalService:
             return (
                 "https://webapi.rednote.com",
                 "https://edith.rednote.com",
-                "https://edith.xiaohongshu.com",
             )
         return (
             "https://webapi.rednote.com",
             "https://edith.rednote.com",
-            "https://edith.xiaohongshu.com",
         )
 
     async def _parse_response(self, response: Any) -> dict[str, Any]:
@@ -2149,6 +2408,10 @@ class XhsLocalService:
         image_urls = self._extract_image_urls(note)
         media_url = self._extract_video_url(note)
         thumbnail_url = self._extract_thumbnail(note, image_urls)
+        note_type = str(note.get("type") or note.get("note_type") or "").lower()
+        if note_type == "video" and not media_url:
+            # Treat as video even if only cover images are available.
+            image_urls = []
         url = original_url or self._build_note_url(note_id, xsec_token, xsec_source)
 
         return Video(
@@ -2216,45 +2479,56 @@ class XhsLocalService:
         for img in note.get("image_list") or note.get("images") or []:
             if isinstance(img, str):
                 if img.strip():
-                    images.append(img.strip())
+                    images.append(XhsLocalService._normalize_media_url(img.strip()))
                 continue
             if not isinstance(img, dict):
                 continue
             for key in ("url_default", "url", "url_pre"):
                 value = img.get(key)
                 if isinstance(value, str) and value.strip():
-                    images.append(value.strip())
+                    images.append(XhsLocalService._normalize_media_url(value.strip()))
                     break
+            if images:
+                continue
+            info_list = img.get("info_list") or img.get("infoList") or []
+            if isinstance(info_list, list):
+                for info in info_list:
+                    if not isinstance(info, dict):
+                        continue
+                    value = info.get("url")
+                    if isinstance(value, str) and value.strip():
+                        images.append(XhsLocalService._normalize_media_url(value.strip()))
+                        break
             if images:
                 continue
             url_list = img.get("url_list") or []
             if isinstance(url_list, list):
                 for value in url_list:
                     if isinstance(value, str) and value.strip():
-                        images.append(value.strip())
+                        images.append(XhsLocalService._normalize_media_url(value.strip()))
                         break
                     if isinstance(value, dict):
                         candidate = value.get("url") or value.get("url_default") or value.get("url_pre")
                         if isinstance(candidate, str) and candidate.strip():
-                            images.append(candidate.strip())
+                            images.append(XhsLocalService._normalize_media_url(candidate.strip()))
                             break
         if not images:
             cover = note.get("cover") or {}
             if isinstance(cover, str):
                 if cover.strip():
-                    images.append(cover.strip())
+                    images.append(XhsLocalService._normalize_media_url(cover.strip()))
             elif isinstance(cover, dict):
                 for key in ("url_default", "url", "url_pre"):
                     value = cover.get(key)
                     if isinstance(value, str) and value.strip():
-                        images.append(value.strip())
+                        images.append(XhsLocalService._normalize_media_url(value.strip()))
                         break
                 if not images:
                     url_list = cover.get("url_list") or []
                     if isinstance(url_list, list):
                         for value in url_list:
                             if isinstance(value, str) and value.strip():
-                                images.append(value.strip())
+                                images.append(XhsLocalService._normalize_media_url(value.strip()))
                                 break
         return images
 
@@ -2263,28 +2537,35 @@ class XhsLocalService:
         cover = note.get("cover") or {}
         if isinstance(cover, str):
             if cover.strip():
-                return cover.strip()
+                return XhsLocalService._normalize_media_url(cover.strip())
         if isinstance(cover, dict):
             for key in ("url_default", "url", "url_pre"):
                 value = cover.get(key)
                 if isinstance(value, str) and value.strip():
-                    return value.strip()
+                    return XhsLocalService._normalize_media_url(value.strip())
             url_list = cover.get("url_list") or []
             if isinstance(url_list, list):
                 for value in url_list:
                     if isinstance(value, str) and value.strip():
-                        return value.strip()
+                        return XhsLocalService._normalize_media_url(value.strip())
                     if isinstance(value, dict):
                         candidate = value.get("url") or value.get("url_default") or value.get("url_pre")
                         if isinstance(candidate, str) and candidate.strip():
-                            return candidate.strip()
+                            return XhsLocalService._normalize_media_url(candidate.strip())
         if isinstance(cover, list):
             for item in cover:
                 if isinstance(item, str) and item.strip():
-                    return item.strip()
+                    return XhsLocalService._normalize_media_url(item.strip())
         if image_urls:
             return image_urls[0]
         return None
+
+    @staticmethod
+    def _normalize_media_url(url: str) -> str:
+        text = (url or "").strip()
+        if text.startswith("http://"):
+            return "https://" + text[len("http://") :]
+        return text
 
     def _extract_video_url(self, note: dict[str, Any]) -> str | None:
         urls = self._collect_video_urls(note)

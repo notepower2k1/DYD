@@ -388,6 +388,15 @@ class TikTokDownloaderApp:
         self.search_keyword_input.entry_var = self.search_keyword_var
         self.search_keyword_input.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
 
+        self.xhs_category_var = tk.StringVar(value="")
+        self.xhs_category_combo = ttk.Combobox(
+            controls_panel,
+            textvariable=self.xhs_category_var,
+            state="readonly",
+            width=20,
+            values=(),
+        )
+
         self.search_btn = ttk.Button(
             controls_panel,
             text="Search",
@@ -1092,6 +1101,7 @@ class TikTokDownloaderApp:
         self._refresh_video_tool_ui("multi", is_douyin or is_xhs)
         self._refresh_video_tool_ui("search", is_douyin or is_xhs)
         self._refresh_search_options_ui(is_douyin, is_xhs)
+        self._refresh_search_keyword_ui(is_xhs)
 
         try:
             self.notebook.add(self.profile_tab, text="Profile")
@@ -1156,6 +1166,46 @@ class TikTokDownloaderApp:
             self.search_options_rednote.pack_forget()
         if hasattr(self, "search_options_douyin") and self.search_options_douyin.winfo_manager():
             self.search_options_douyin.pack_forget()
+
+    def _refresh_search_keyword_ui(self, is_xhs: bool) -> None:
+        if not hasattr(self, "search_keyword_input"):
+            return
+        if is_xhs:
+            if self.search_keyword_input.winfo_manager():
+                self.search_keyword_input.pack_forget()
+            if hasattr(self, "xhs_category_combo") and not self.xhs_category_combo.winfo_manager():
+                self.xhs_category_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+            try:
+                self._load_xhs_categories(default_only=False)
+            except Exception:
+                pass
+            if hasattr(self, "search_btn"):
+                self.search_btn.configure(text="Explore")
+        else:
+            if not self.search_keyword_input.winfo_manager():
+                self.search_keyword_input.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+            if hasattr(self, "xhs_category_combo") and self.xhs_category_combo.winfo_manager():
+                self.xhs_category_combo.pack_forget()
+            if hasattr(self, "search_btn"):
+                self.search_btn.configure(text="Search")
+
+    def _load_xhs_categories(self, default_only: bool = False) -> None:
+        if not hasattr(self, "xhs_category_combo"):
+            return
+        if getattr(self, "_xhs_categories", None) is None or not self._xhs_categories:
+            try:
+                self._xhs_categories = self.tiktok_service.fetch_xhs_explore_categories()
+            except Exception:
+                self._xhs_categories = []
+        self._xhs_category_map = {item["label"]: item["value"] for item in self._xhs_categories if "label" in item and "value" in item}
+        labels = list(self._xhs_category_map.keys())
+        try:
+            self.xhs_category_combo.configure(values=labels)
+        except Exception:
+            pass
+        if labels:
+            if not self.xhs_category_var.get().strip() or default_only:
+                self.xhs_category_var.set(labels[0])
 
     def _active_mode(self) -> str:
         current = self.notebook.select()
@@ -1748,12 +1798,11 @@ class TikTokDownloaderApp:
         self._do_search_multi(urls)
 
     def on_search_videos(self) -> None:
+        platform = self.platform_var.get().strip().lower() or "tiktok"
         keyword = (self.search_keyword_var.get() or "").strip()
-        if not keyword:
+        if platform != "xhs" and not keyword:
             messagebox.showwarning("Missing Keyword", "Please enter a keyword to search.")
             return
-
-        platform = self.platform_var.get().strip().lower() or "tiktok"
 
         self.search_videos = []
         self._search_all_videos = []
@@ -1763,18 +1812,21 @@ class TikTokDownloaderApp:
         self.search_grid.show_skeleton(8)
         self._set_loading(True)
         platform_label = "Douyin" if platform == "douyin" else ("Rednote" if platform == "xhs" else "TikTok")
-        self.status_var.set(f"Searching {platform_label} for '{keyword}'...")
+        if platform == "xhs":
+            self.status_var.set("Loading Rednote explore feed...")
+        else:
+            self.status_var.set(f"Searching {platform_label} for '{keyword}'...")
         self._do_search_keyword(keyword, platform, reset=True)
 
     def on_load_more_search(self) -> None:
         if not self._search_has_more:
             return
-        keyword = (self.search_keyword_var.get() or "").strip()
-        if not keyword:
-            return
         platform = self.platform_var.get().strip().lower() or "tiktok"
         if platform not in {"douyin", "xhs"}:
             messagebox.showinfo("Unavailable", "Load more is currently supported only for Douyin and Rednote search.")
+            return
+        keyword = (self.search_keyword_var.get() or "").strip()
+        if platform != "xhs" and not keyword:
             return
         self.search_grid.show_tail_skeleton(4)
         self._set_loading(True)
@@ -1799,15 +1851,33 @@ class TikTokDownloaderApp:
                     Path.cwd().joinpath("xhs_debug.log").open("a", encoding="utf-8").write(line)
                 except Exception:
                     pass
-            if platform in {"douyin", "xhs"} and not reset and self._search_id:
-                options["search_id"] = self._search_id
-            videos, has_more, next_offset, next_search_id = self.tiktok_service.search_by_keyword(
-                keyword,
-                platform=platform,
-                offset=self._search_offset if not reset else 0,
-                count=self._get_page_size(),
-                options=options,
-            )
+            if platform == "xhs":
+                category = ""
+                try:
+                    if hasattr(self, "_xhs_categories") and self._xhs_categories:
+                        if not self.xhs_category_var.get().strip():
+                            self._load_xhs_categories(default_only=True)
+                        category = str(self._xhs_category_map.get(self.xhs_category_var.get().strip(), ""))
+                    else:
+                        self._load_xhs_categories(default_only=False)
+                        category = str(self._xhs_category_map.get(self.xhs_category_var.get().strip(), ""))
+                except Exception:
+                    category = ""
+                videos, has_more, next_offset, next_search_id = self.tiktok_service.fetch_xhs_explore(
+                    offset=self._search_offset if not reset else 0,
+                    count=self._get_page_size(),
+                    category=category or "homefeed_recommend",
+                )
+            else:
+                if platform in {"douyin"} and not reset and self._search_id:
+                    options["search_id"] = self._search_id
+                videos, has_more, next_offset, next_search_id = self.tiktok_service.search_by_keyword(
+                    keyword,
+                    platform=platform,
+                    offset=self._search_offset if not reset else 0,
+                    count=self._get_page_size(),
+                    options=options,
+                )
         except Exception as exc:  # noqa: BLE001
             self.root.after(0, lambda exc=exc: self._handle_search_error(exc))
             return
@@ -1825,7 +1895,10 @@ class TikTokDownloaderApp:
         self._set_loading(False)
         videos = self._dedupe_videos(videos)
         if not videos:
-            self.status_var.set("No videos found.")
+            if self.platform_var.get().strip().lower() == "xhs":
+                self.status_var.set("No Rednote explore items found.")
+            else:
+                self.status_var.set("No videos found.")
             if reset:
                 self.search_grid.set_videos([], has_more=False)
             self.search_grid_container.scroll_to_top()
@@ -1852,10 +1925,16 @@ class TikTokDownloaderApp:
         if self.platform_var.get().strip().lower() in {"douyin", "xhs"} and next_search_id:
             self._search_id = next_search_id
         self._refresh_search_load_more_button()
-        self.status_var.set(
-            f"Found {len(self._search_all_videos)} video(s) for '{keyword}'."
-            + (" More available." if self._search_has_more else "")
-        )
+        if self.platform_var.get().strip().lower() == "xhs":
+            self.status_var.set(
+                f"Loaded {len(self._search_all_videos)} explore item(s)."
+                + (" More available." if self._search_has_more else "")
+            )
+        else:
+            self.status_var.set(
+                f"Found {len(self._search_all_videos)} video(s) for '{keyword}'."
+                + (" More available." if self._search_has_more else "")
+            )
         self._sync_platform_state()
         self._persist_platform_workspace_cache(self.platform_var.get())
         self._save_session_cache()
