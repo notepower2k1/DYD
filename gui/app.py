@@ -1401,6 +1401,13 @@ class TikTokDownloaderApp:
     def _toggle_rednote_debug(self) -> None:
         enabled = bool(self.rednote_debug_var.get())
         self.tiktok_service.enable_xhs_debug(enabled)
+        try:
+            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            payload = {"message": "debug.toggle", "enabled": enabled}
+            line = f"[{stamp}] {json.dumps(payload, ensure_ascii=False)}\n"
+            Path.cwd().joinpath("xhs_debug.log").open("a", encoding="utf-8").write(line)
+        except Exception:
+            pass
         if enabled:
             self.status_var.set("Rednote debug is enabled. Browser will stay visible.")
         else:
@@ -1798,6 +1805,20 @@ class TikTokDownloaderApp:
     def _do_search_keyword(self, keyword: str, platform: str, reset: bool) -> None:
         try:
             options = self._build_search_options()
+            if platform == "xhs":
+                try:
+                    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    payload = {
+                        "message": "search.ui",
+                        "keyword": keyword,
+                        "options": options,
+                        "reset": reset,
+                        "offset": self._search_offset if not reset else 0,
+                    }
+                    line = f"[{stamp}] {json.dumps(payload, ensure_ascii=False)}\n"
+                    Path.cwd().joinpath("xhs_debug.log").open("a", encoding="utf-8").write(line)
+                except Exception:
+                    pass
             if platform in {"douyin", "xhs"} and not reset and self._search_id:
                 options["search_id"] = self._search_id
             videos, has_more, next_offset, next_search_id = self.tiktok_service.search_by_keyword(
@@ -1971,7 +1992,18 @@ class TikTokDownloaderApp:
             self.search_grid.clear_tail_skeleton()
             self._search_has_more = False
             self._refresh_search_load_more_button()
-        messagebox.showerror("Request Failed", f"Could not fetch TikTok / Douyin data.\n\nDetails: {exc}")
+        platform = self.platform_var.get().strip().lower()
+        platform_name = "Rednote" if platform == "xhs" else ("Douyin" if platform == "douyin" else "TikTok")
+        detail = str(exc)
+        if platform == "xhs" and "login expired" in detail.lower():
+            self._update_rednote_login_status()
+            messagebox.showerror(
+                "Request Failed",
+                "Rednote login expired. Please open Settings and login again, then retry the search.\n\nDetails: "
+                + detail,
+            )
+            return
+        messagebox.showerror("Request Failed", f"Could not fetch {platform_name} data.\n\nDetails: {detail}")
 
     def _handle_search_success_multi(self, videos: List[Video]) -> None:
         self._set_loading(False)

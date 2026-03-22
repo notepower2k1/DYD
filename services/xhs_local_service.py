@@ -48,6 +48,7 @@ class XhsLocalService:
         self._login_in_progress = False
         self._debug_enabled = False
         self._log_path = project_root / "xhs_debug.log"
+        self._search_listener_attached = False
 
     @staticmethod
     def is_xhs_url(url: str) -> bool:
@@ -243,6 +244,56 @@ class XhsLocalService:
             raise RuntimeError("Could not initialize the Rednote background loop.")
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return future.result()
+
+    @staticmethod
+    def _build_search_page_url(keyword: str) -> str:
+        term = quote((keyword or "").strip())
+        if not term:
+            return "https://www.rednote.com/search_result"
+        return f"https://www.rednote.com/search_result?keyword={term}"
+
+    def _attach_search_interceptor(self, page: Page) -> None:
+        if self._search_listener_attached:
+            return
+
+        def _pick_headers(headers: dict[str, str]) -> dict[str, str]:
+            picked: dict[str, str] = {}
+            for key in ("content-type", "referer", "origin", "user-agent"):
+                value = headers.get(key)
+                if value:
+                    picked[key] = value
+            return picked
+
+        async def _on_request(request) -> None:  # type: ignore[no-untyped-def]
+            try:
+                url = request.url
+                if "/api/sns/web/v1/search/notes" not in url:
+                    return
+                payload = None
+                try:
+                    payload = request.post_data_json
+                except Exception:
+                    payload = None
+                if payload is None:
+                    try:
+                        payload = request.post_data
+                    except Exception:
+                        payload = None
+                self._debug(
+                    "search.intercept",
+                    url=url,
+                    method=request.method,
+                    headers=_pick_headers(request.headers or {}),
+                    payload=payload,
+                )
+            except Exception:
+                pass
+
+        try:
+            page.on("request", _on_request)
+            self._search_listener_attached = True
+        except Exception:
+            pass
 
     def _ensure_loop(self) -> None:
         if self._loop is not None and self._loop_thread is not None and self._loop_thread.is_alive():
@@ -812,39 +863,56 @@ class XhsLocalService:
 
         page_index = max(1, int(offset or 1))
         page_size = max(1, min(int(count or 20), 30))
+        if self._debug_enabled:
+            self._attach_search_interceptor(page)
         sort_label = str(options.get("sort_label") or "")
-        sort_value = str(options.get("sort") or "").strip()
-        if not sort_value:
-            sort_value = "general"
-            if sort_label == "Newest":
-                sort_value = "time_descending"
-            elif sort_label == "Most Liked":
-                sort_value = "popularity_descending"
-            elif sort_label == "Most Commented":
-                sort_value = "comment_descending"
-            elif sort_label == "Most Collected":
-                sort_value = "collect_descending"
-        note_type = options.get("note_type")
-        if note_type is None:
-            note_label = str(options.get("note_type_label") or "")
-            if note_label == "Video":
-                note_type = 1
-            elif note_label == "Image":
-                note_type = 2
-            else:
-                note_type = 0
-        publish_time = options.get("publish_time")
-        if publish_time is None:
-            time_label = str(options.get("time_label") or "")
-            if time_label == "Past 24 hours":
-                publish_time = 1
-            elif time_label == "Past week":
-                publish_time = 7
-            elif time_label == "Past 6 months":
-                publish_time = 180
-            else:
-                publish_time = 0
-        search_id = str(options.get("search_id") or self._get_search_id())
+        sort_value = "general"
+        sort_tag = "general"
+        if sort_label == "Newest":
+            sort_tag = "time_descending"
+        elif sort_label == "Most Liked":
+            sort_tag = "popularity_descending"
+        elif sort_label == "Most Commented":
+            sort_tag = "comment_descending"
+        elif sort_label == "Most Collected":
+            sort_tag = "collect_descending"
+        note_label = str(options.get("note_type_label") or "")
+        note_tag = "不限"
+        if note_label == "Video":
+            note_tag = "视频笔记"
+        elif note_label == "Image":
+            note_tag = "普通笔记"
+        time_label = str(options.get("time_label") or "")
+        time_tag = "不限"
+        if time_label == "Past 24 hours":
+            time_tag = "一天内"
+        elif time_label == "Past week":
+            time_tag = "一周内"
+        elif time_label == "Past 6 months":
+            time_tag = "半年内"
+
+        search_id = str(options.get("search_id") or "").strip()
+        if not search_id:
+            search_id = self._get_search_id().lower()
+        else:
+            search_id = search_id.lower()
+        filters_active = (
+            sort_tag != "general"
+            or note_tag != "不限"
+            or time_tag != "不限"
+        )
+        if filters_active and "@" not in search_id:
+            search_id = f"{search_id}@{self._get_search_id().lower()}"
+
+        filters = None
+        if filters_active:
+            filters = [
+                {"tags": [sort_tag], "type": "sort_type"},
+                {"tags": [note_tag], "type": "filter_note_type"},
+                {"tags": [time_tag], "type": "filter_note_time"},
+                {"tags": ["不限"], "type": "filter_note_range"},
+                {"tags": ["不限"], "type": "filter_pos_distance"},
+            ]
 
         payload = {
             "keyword": term,
@@ -852,14 +920,35 @@ class XhsLocalService:
             "page_size": page_size,
             "search_id": search_id,
             "sort": sort_value,
-            "note_type": int(note_type or 0),
-            "publish_time": int(publish_time or 0),
+            "note_type": 0,
+            "ext_flags": [],
+            "geo": "",
+            "image_formats": ["jpg", "webp", "avif"],
         }
-        response = await self._signed_post(page, self._SEARCH_API, payload)
+        if filters is not None:
+            payload["filters"] = filters
+        if self._debug_enabled:
+            try:
+                self._debug("search.request", payload=payload, options=options)
+                search_url = self._build_search_page_url(term)
+                self._debug("search.navigate", url=search_url)
+                await page.goto(search_url, wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+        try:
+            response = await self._signed_post(page, self._SEARCH_API, payload)
+        except Exception as exc:
+            if self._debug_enabled:
+                try:
+                    self._debug("search.error", error=str(exc or ""), payload=payload)
+                except Exception:
+                    pass
+            raise
         items = response.get("items") or []
         has_more = bool(response.get("has_more", False))
         try:
             self._debug("search.items", count=len(items) if isinstance(items, list) else 0)
+            self._debug("search.response", has_more=has_more, item_count=len(items) if isinstance(items, list) else 0)
         except Exception:
             pass
 
@@ -914,6 +1003,8 @@ class XhsLocalService:
                             xsec_source,
                         )
                 videos.append(video_obj)
+
+        # Server-side filters already reflect the chosen sorting.
 
         next_offset = page_index + 1 if has_more else page_index
         return videos, has_more, next_offset, search_id
@@ -1692,6 +1783,8 @@ class XhsLocalService:
             code = data.get("code")
             msg = data.get("msg") or data.get("message") or ""
             if data.get("success") is False or code not in (None, 0):
+                if str(code) == "-100" or "登录已过期" in str(msg):
+                    raise RuntimeError("Rednote login expired. Please login again from Settings.")
                 raise RuntimeError(f"XHS API request failed. code={code}, msg={msg}")
             if "data" in data and isinstance(data.get("data"), dict):
                 return data["data"]
