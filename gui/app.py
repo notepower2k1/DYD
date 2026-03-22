@@ -420,6 +420,7 @@ class TikTokDownloaderApp:
         self.search_options_label = ttk.Label(self.search_options_panel, text="Search Options (Before Fetch)", style="Muted.TLabel")
         self.search_options_rednote = ttk.Frame(self.search_options_panel, style="Panel.TFrame")
         self.search_options_douyin = ttk.Frame(self.search_options_panel, style="Panel.TFrame")
+        self.search_options_panel.pack(side=tk.TOP, fill=tk.X)
 
         self.search_sort_var = tk.StringVar(value="Comprehensive")
         self.search_type_var = tk.StringVar(value="All")
@@ -1161,10 +1162,19 @@ class TikTokDownloaderApp:
                 self.search_keyword_input.pack_forget()
             if hasattr(self, "xhs_category_combo") and not self.xhs_category_combo.winfo_manager():
                 self.xhs_category_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-            try:
-                self._load_xhs_categories(default_only=False)
-            except Exception:
-                pass
+            if getattr(self, "_xhs_categories", None):
+                try:
+                    self._load_xhs_categories(default_only=False)
+                except Exception:
+                    pass
+            else:
+                # Avoid opening the Rednote browser just to populate categories.
+                try:
+                    self.xhs_category_combo.configure(values=("homefeed_recommend",))
+                    if not self.xhs_category_var.get().strip():
+                        self.xhs_category_var.set("homefeed_recommend")
+                except Exception:
+                    pass
             if hasattr(self, "search_btn"):
                 self.search_btn.configure(text="Explore")
         else:
